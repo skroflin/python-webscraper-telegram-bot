@@ -81,8 +81,8 @@ class TestExtractors:
         soup = BeautifulSoup(html_content, "html.parser")
 
         with patch("scrapers.index_hr.match_location_id", return_value=2):
-            results = extract_from_next_data(soup)
-
+            results, error = extract_from_next_data(soup)
+            
         assert len(results) == 1
         assert results[0]["external_id"] == "12345"
         assert results[0]["title"] == "Stan RTF 50 m2"
@@ -93,18 +93,39 @@ class TestExtractors:
 class TestScraperFlow:
 
     @patch("scrapers.index_hr.requests.get")
-    @patch("scrapers.index_hr.extract_from_next_data")
     @patch("scrapers.index_hr.time.sleep")
-    def test_scrape_index_osijek_pagination(self, mock_sleep, mock_extract, mock_requests):
-        mock_response = MagicMock()
-        mock_response.content = b"<html></html>"
-        mock_response.raise_for_status.return_value = None
-        mock_requests.return_value = mock_response
+    def test_scrape_index_osijek_pagination(self, mock_sleep, mock_requests):
+        mock_response_p1 = MagicMock()
+        mock_response_p1.status_code = 200
+        mock_response_p1.json.return_value = {
+            "data": [
+                {
+                    "code": "1",
+                    "smartLink": "oglas-1",
+                    "title": "Stan 1",
+                    "price": 400,
+                    "summary": {"area": 50}
+                }
+            ],
+            "nextPage": 2
+        }
 
-        mock_extract.side_effect = [
-            [{"url": "https://www.index.hr/oglas/1"}],
-            [{"url": "https://www.index.hr/oglas/2"}]
-        ]
+        mock_response_p2 = MagicMock()
+        mock_response_p2.status_code = 200
+        mock_response_p2.json.return_value = {
+            "data": [
+                {
+                    "code": "2",
+                    "smartLink": "oglas-2",
+                    "title": "Stan 2",
+                    "price": 450,
+                    "summary": {"area": 60}
+                }
+            ],
+            "nextPage": None
+        }
+
+        mock_requests.side_effect = [mock_response_p1, mock_response_p2]
 
         results = scrape_index_osijek(max_pages=2)
 

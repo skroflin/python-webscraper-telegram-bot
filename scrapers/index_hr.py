@@ -4,37 +4,27 @@ import re
 import time
 import urllib.parse
 import requests
-from bs4 import BeautifulSoup
 from typing import List, Dict, Optional, Tuple
+from bs4 import BeautifulSoup
+
 from database.database import save_or_update_listing, get_connectivity
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-BASE_URL = "https://www.index.hr"
-SEARCH_URL = (
-    "https://www.index.hr/oglasi/nekretnine/najam-stanova/osijek/pretraga?"
-    "searchQuery=%7B%22category%22%3A%22najam-stanova%22%2C%22module%22%3A%22nekretnine%22%2C"
-    "%22sortOption%22%3A4%2C%22includeCityIds%22%3A%5B%22bd972dcf-a9f4-471b-89e5-c0e4c4117f43%22%5D%7D"
-)
+API_URL = "https://www.index.hr/oglasi/api/aditem"
+BASE_URL = "https://www.index.hr/oglasi"
+OSIJEK_CITY_ID = "bd972dcf-a9f4-471b-89e5-c0e4c4117f43"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
     "Accept-Language": "hr-HR,hr;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Referer": "https://www.index.hr/oglasi/",
-    "Sec-Ch-Ua": '"Google Chrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "same-origin",
-    "Sec-Fetch-User": "?1",
-    "Upgrade-Insecure-Requests": "1"
+    "Referer": "https://www.index.hr/oglasi/najam-stanova/grad-osijek",
 }
 
+
 def parse_price(price_raw) -> float:
-    """Scrape numeric value for price in EUR."""
-    if not price_raw:
+    if price_raw is None or price_raw == "":
         return 0.00
     if isinstance(price_raw, (int, float)):
         return float(price_raw)
@@ -42,20 +32,22 @@ def parse_price(price_raw) -> float:
     text = str(price_raw).replace("€", "").replace("EUR", "").strip()
     text = text.replace(".", "").replace(",", ".")
     match = re.search(r"(\d+(\.\d+)?)", text)
-    return float(match.group(1)) if match else 0.0
+    return float(match.group(1)) if match else 0.00
 
-def parse_area(text: str) -> Optional[float]:
-    """Extracting quadrature (m2) from title or description"""
+
+def parse_area(text: Optional[str]) -> Optional[float]:
     if not text:
         return None
-    match = re.search(r"(\d+([\.,]\d+)?)\s*(m2|m²|kvadrat|kvadrata|kvm)", text, re.IGNORECASE)
+    match = re.search(r"(\d+([\.,]\d+)?)\s*(m2|m²|kvadrat|kvadrata|kvm)", str(text), re.IGNORECASE)
     if match:
         val = match.group(1).replace(",", ".")
         return float(val)
     return None
 
-def match_location_id(title_and_text: str) -> Optional[int]:
-    """Mapping neighborhood names from ad text and Ids in table `locations`."""
+
+def match_location_id(title_and_text: Optional[str]) -> Optional[int]:
+    if not title_and_text:
+        return None
     text_lower = title_and_text.lower()
 
     try:
@@ -87,187 +79,105 @@ def match_location_id(title_and_text: str) -> Optional[int]:
 
     return None
 
-def extract_from_next_data(soup: BeautifulSoup) -> Tuple[List[Dict], Optional[str]]:
-    """Trying to fetch ad from Next.js JSON container (___NEXT_DATA__)."""
-    script_tag = soup.find("script", id="__NEXT_DATA__")
-    if not script_tag:
-        return [], "Tag <script id='__NEXT_DATA__'> doesn't exist in the HTML"
-    if not script_tag.string:
-        return [], "Tag __NEXT_DATA__ is empty"
 
-    try:
-        data = json.loads(script_tag.string)
-        page_props = data.get("props", {}).get("pageProps", {})
+def parse_api_item(item: Dict) -> Optional[Dict]:
+    smart_link = item.get("smartLink")
+    code = item.get("code") or item.get("id")
 
-        items = (
-            page_props.get("searchResults", {}).get("ads")
-            or page_props.get("ads")
-            or page_props.get("initialData", {}).get("ads")
-            or []
-        )
+    if smart_link and code:
+        url = f"{BASE_URL}/{smart_link}/{code}"
+    elif code:
+        url = f"{BASE_URL}/{code}"
+    else:
+        return None
 
-        if not items:
-            return [], "JSON structure does not contain ad field or list is empty!"
+    title = (item.get("title") or "Bez naslova").strip()
+    price = parse_price(item.get("price"))
 
-        listings = []
-        for item in items:
-            url = item.get("url") or item.get("link") or item.get("canonicalUrl")
-            if not url:
-                continue
+    if price == 0:
+        return None
 
-            if not url.startswith("http"):
-                url = urllib.parse.urljoin(BASE_URL, url)
-
-            title = item.get("title") or item.get("heading") or "No title"
-            price_raw = item.get("price") if item.get("price") is not None else item.get("priceEur")
-            price = parse_price(price_raw)
-
-            if price == 0:
-                continue
-
-            description = item.get("description") or ""
-            area_sqm = item.get("surfaceArea") or item.get("area") or parse_area(title) or parse_area(description)
-
-            if area_sqm:
-                try:
-                    area_sqm = float(str(area_sqm).replace(",", "."))
-                except ValueError:
-                    area_sqm = None
-
-            location_id = match_location_id(f"{title} {description}")
-
-            listings.append({
-                "external_id": str(item.get("id") or item.get("adId") or ""),
-                "source_platform": "Index Oglasnik",
-                "title": title.strip(),
-                "description": description.strip(),
-                "price": float(price),
-                "area_sqm": area_sqm,
-                "location_id": location_id,
-                "raw_address": "Osijek",
-                "url": url,
-            })
-
-        if not listings:
-            return [], "Not one ad was successfully extracted after filtration"
-
-        return listings, None
-
-    except Exception as e:
-        error_msg = f"\u274C Unsuccessful parsing __NEXT_DATA__ JSON: {e}"
-        logging.warning(error_msg)
-        return [], error_msg
-
-def extract_from_html(soup: BeautifulSoup) -> List[Dict]:
-    listings = []
-    seen_urls = set()
-
-    for a_tag in soup.find_all("a", href=True):
+    summary = item.get("summary") or {}
+    area_sqm = summary.get("area")
+    if area_sqm is not None:
         try:
-            raw_href = a_tag["href"]
-            
-            id_match = re.search(r"/(\d+)(?:\?.*)?$", raw_href)
-            if not id_match:
-                continue
-
-            external_id = id_match.group(1)
-            url = urllib.parse.urljoin(BASE_URL, raw_href)
-
-            if url in seen_urls:
-                continue
-
-            title = a_tag.get("title", "").strip()
-            if not title:
-                title_el = a_tag.select_one("[class*='title'], [class*='Title'], h2, h3, h4")
-                if title_el:
-                    title = title_el.get_text(strip=True)
-                else:
-                    lines = [line.strip() for line in a_tag.get_text("\n").split("\n") if line.strip()]
-                    title = lines[0] if lines else ""
-
-            if not title or len(title) < 3 or "prikaz" in title.lower():
-                continue
-
-            seen_urls.add(url)
-
-            price_el = a_tag.select_one("[class*='price'], [class*='Price']")
-            if price_el:
-                price_text = price_el.get_text(strip=True)
-            else:
-                card_text = a_tag.get_text(" ")
-                price_match = re.search(r"(\d+[\d\.,]*\s*€|\d+[\d\.,]*\s*EUR)", card_text)
-                price_text = price_match.group(1) if price_match else ""
-
-            price = parse_price(price_text)
-
+            area_sqm = float(area_sqm)
+        except (ValueError, TypeError):
             area_sqm = parse_area(title)
-            location_id = match_location_id(title)
+    else:
+        area_sqm = parse_area(title)
 
-            listings.append({
-                "external_id": external_id,
-                "source_platform": "Index Oglasnik",
-                "title": title,
-                "description": "",
-                "price": price,
-                "area_sqm": area_sqm,
-                "location_id": location_id,
-                "raw_address": "Osijek",
-                "url": url,
-            })
+    settlement = item.get("settlementName") or ""
+    description = f"Naselje/Kvart: {settlement}".strip() if settlement else ""
+    location_id = match_location_id(f"{title} {settlement}")
 
-        except Exception as e:
-            logging.debug(f"\u274C Error parsing HTML card: {e}")
+    return {
+        "external_id": str(code),
+        "source_platform": "Index Oglasnik",
+        "title": title,
+        "description": description,
+        "price": price,
+        "area_sqm": area_sqm,
+        "location_id": location_id,
+        "raw_address": f"Osijek, {settlement}".strip(", "),
+        "url": url,
+    }
 
-    return listings
 
 def scrape_index_osijek(max_pages: int = 2) -> List[Dict]:
-    """Main scraping function: parsing through specific page number"""
     all_listings = []
     seen_urls = set()
 
     for page in range(1, max_pages + 1):
-        url = SEARCH_URL
-        if page > 1:
-            url += f"&page={page}"
+        logging.info(f"Scraping Index Oglasnik API (page {page}/{max_pages})... \U0001f5e1")
 
-        logging.info(f"Scraping Index Oglasnik (page {page}/{max_pages})... \U0001F52A")
+        search_query = {
+            "category": "najam-stanova",
+            "cities": [OSIJEK_CITY_ID]
+        }
+
+        params = {
+            "searchQuery": json.dumps(search_query, separators=(',', ':')),
+            "page": page,
+            "itemPerPage": 24,
+            "sortOption": 4
+        }
 
         try:
-            response = requests.get(url, headers=HEADERS, timeout=12)
-            with open("debug_index.html", "w", encoding="utf-8") as f:
-                f.write(response.text)
-            response.raise_for_status()
-        except requests.RequestException as e:
-            logging.error(f"\u274C Error whilst fetching page {page}: {e}")
+            response = requests.get(API_URL, headers=HEADERS, params=params, timeout=10)
+
+            if response.status_code != 200:
+                logging.error(f"\u274c Index API returned status {response.status_code}: {response.text}")
+                break
+
+            data = response.json()
+            items = data.get("data", []) or []
+
+            if not items:
+                logging.info(f"No listings found on page {page}.")
+                break
+
+            page_count = 0
+            for item in items:
+                parsed = parse_api_item(item)
+                if parsed and parsed["url"] not in seen_urls:
+                    seen_urls.add(parsed["url"])
+                    all_listings.append(parsed)
+                    page_count += 1
+
+            logging.info(f"Found {page_count} new listings on page {page}")
+
+            if page < max_pages:
+                time.sleep(1.0)
+
+        except Exception as e:
+            logging.error(f"\u274c Error fetching API on page {page}: {e}")
             break
-
-        soup = BeautifulSoup(response.content, "html.parser")
-
-        page_title = soup.title.string.strip() if soup.title else "No Title"
-        logging.info(f"Page title: '{page_title}' | Response length: {len(response.text)} bytes")
-
-        listings, error_reason = extract_from_next_data(soup)
-
-        if not listings:
-            logging.error(f"\U00002139 __NEXT_DATA__ not found/supported: ({error_reason}), using HTML parsers!")
-            listings = extract_from_html(soup)
-
-        page_count = 0
-        for item in listings:
-            if item["url"] not in seen_urls:
-                seen_urls.add(item["url"])
-                all_listings.append(item)
-                page_count += 1
-
-        logging.info(f"Found {page_count} new ads on page {page}")
-
-        if page < max_pages:
-            time.sleep(1.5)
 
     return all_listings
 
+
 def run_index_scraper_and_save(max_pages: int = 2) -> Dict[str, int]:
-    """Starting scraper and saving/inserting newly found ads to db."""
     fetched_listings = scrape_index_osijek(max_pages=max_pages)
 
     stats = {
@@ -289,3 +199,110 @@ def run_index_scraper_and_save(max_pages: int = 2) -> Dict[str, int]:
             stats["duplicates"] += 1
 
     return stats
+
+
+def extract_from_next_data(soup: BeautifulSoup) -> Tuple[List[Dict], Optional[str]]:
+    script_tag = soup.find("script", id="__NEXT_DATA__")
+    if not script_tag or not script_tag.string:
+        return [], "Tag <script id='__NEXT_DATA__'> does not exist in HTML"
+
+    try:
+        data = json.loads(script_tag.string)
+        page_props = data.get("props", {}).get("pageProps", {})
+        items = (
+            page_props.get("searchResults", {}).get("ads")
+            or page_props.get("ads")
+            or page_props.get("initialData", {}).get("ads")
+            or []
+        )
+
+        listings = []
+        for item in items:
+            url = item.get("url") or item.get("link")
+            if not url:
+                continue
+            if not url.startswith("http"):
+                url = urllib.parse.urljoin(BASE_URL, url)
+
+            title = item.get("title") or "Bez naslova"
+            price = parse_price(item.get("price") or item.get("priceEur"))
+            if price == 0:
+                continue
+
+            desc = item.get("description") or ""
+            area_sqm = item.get("surfaceArea") or parse_area(title)
+
+            listings.append({
+                "external_id": str(item.get("id") or ""),
+                "source_platform": "Index Oglasnik",
+                "title": title.strip(),
+                "description": desc.strip(),
+                "price": float(price),
+                "area_sqm": float(area_sqm) if area_sqm else None,
+                "location_id": match_location_id(f"{title} {desc}"),
+                "raw_address": "Osijek",
+                "url": url,
+            })
+        return listings, None
+    except Exception as e:
+        return [], str(e)
+
+
+def extract_from_html(soup: BeautifulSoup) -> List[Dict]:
+    listings = []
+
+    cards = soup.select(".results-page .element, a.m-card, .ad-box, article, div[class*='card'], div[class*='ad-']")
+
+    if not cards:
+        cards = [
+            a for a in soup.find_all("a", href=True)
+            if "/oglasi/" in a["href"] and any(char.isdigit() for char in a["href"])
+        ]
+
+    seen_urls_in_page = set()
+
+    for card in cards:
+        url = card.get("href") if card.name == "a" else None
+        if not url:
+            a_tag = card.find("a", href=True)
+            url = a_tag["href"] if a_tag else None
+
+        if not url:
+            continue
+
+        if not url.startswith("http"):
+            url = urllib.parse.urljoin(BASE_URL, url)
+
+        if url.endswith("/grad-osijek") or "najam-stanova?" in url or url in seen_urls_in_page:
+            continue
+
+        seen_urls_in_page.add(url)
+
+        title_el = card.select_one(".title, .m-card__title, h3, h2, strong")
+        title = title_el.get_text(strip=True) if title_el else card.get_text(strip=True)
+
+        if len(title) > 200:
+            title = title[:197] + "..."
+
+        price_el = card.select_one(".price, .m-card__price, .price-eur, span[class*='price']")
+        price_text = price_el.get_text(strip=True) if price_el else card.get_text(strip=True)
+        price = parse_price(price_text)
+
+        if price == 0:
+            continue
+
+        ext_id = url.rstrip("/").split("/")[-1].replace(".aspx", "")
+
+        listings.append({
+            "external_id": ext_id,
+            "source_platform": "Index Oglasnik",
+            "title": title,
+            "description": "",
+            "price": float(price),
+            "area_sqm": parse_area(title),
+            "location_id": match_location_id(title),
+            "raw_address": "Osijek",
+            "url": url,
+        })
+
+    return listings
