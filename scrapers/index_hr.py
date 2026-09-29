@@ -85,9 +85,9 @@ def parse_api_item(item: Dict) -> Optional[Dict]:
     code = item.get("code") or item.get("id")
 
     if smart_link and code:
-        url = f"{BASE_URL}/{smart_link}/{code}"
+        url = f"{BASE_URL}/nekretnine/najam-stanova/oglas/{smart_link}/{code}"
     elif code:
-        url = f"{BASE_URL}/{code}"
+        url = f"{BASE_URL}/nekretnine/najam-stanova/oglas/{code}"
     else:
         return None
 
@@ -124,48 +124,90 @@ def parse_api_item(item: Dict) -> Optional[Dict]:
     }
 
 
-def scrape_index_osijek(max_pages: int = 2) -> List[Dict]:
+def scrape_index_osijek(max_pages: int = 10) -> List[Dict]:
+    """Scrape Index.hr Oglasnik for Osijek apartment rentals.
+
+    The API does not honour city filters server-side — it returns all Croatian
+    listings. We post-filter every response item by cityId == OSIJEK_CITY_ID.
+    With ~1 Osijek listing per 24 returned we scrape up to `max_pages` pages,
+    but stop early if we find no Osijek listings for 3 consecutive pages.
+    """
     all_listings = []
     seen_urls = set()
+    consecutive_empty_pages = 0
+    EARLY_STOP_AFTER = 3  # stop if this many pages in a row have 0 Osijek items
+
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": HEADERS["User-Agent"],
+        "Accept-Language": HEADERS["Accept-Language"],
+    })
+
+    try:
+        logging.info("Acquiring session cookies from Index.hr...")
+        page_resp = session.get(
+            "https://www.index.hr/oglasi/nekretnine/najam-stanova/osijek/pretraga",
+            headers={"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+            timeout=15,
+        )
+        if page_resp.status_code != 200:
+            logging.warning(f"Cookie page returned {page_resp.status_code}, proceeding anyway.")
+    except Exception as e:
+        logging.warning(f"Could not pre-fetch cookie page: {e}, proceeding anyway.")
+
+    api_headers = {**HEADERS, "X-Requested-With": "XMLHttpRequest"}
 
     for page in range(1, max_pages + 1):
         logging.info(f"Scraping Index Oglasnik API (page {page}/{max_pages})... \U0001f5e1")
 
         search_query = {
             "category": "najam-stanova",
-            "cities": [OSIJEK_CITY_ID]
+            "module": "nekretnine",
+            "sortOption": 4,
+            "includeCityIds": [OSIJEK_CITY_ID],
         }
 
         params = {
             "searchQuery": json.dumps(search_query, separators=(',', ':')),
             "page": page,
             "itemPerPage": 24,
-            "sortOption": 4
         }
 
         try:
-            response = requests.get(API_URL, headers=HEADERS, params=params, timeout=10)
+            response = session.get(API_URL, headers=api_headers, params=params, timeout=10)
 
             if response.status_code != 200:
                 logging.error(f"\u274c Index API returned status {response.status_code}: {response.text}")
                 break
 
             data = response.json()
-            items = data.get("data", []) or []
+            raw_items = data.get("data", []) or []
 
-            if not items:
-                logging.info(f"No listings found on page {page}.")
+            if not raw_items:
+                logging.info(f"No listings found on page {page}, stopping.")
                 break
 
+            # Post-filter: keep only Osijek listings (the API ignores city filters server-side)
+            osijek_items = [i for i in raw_items if i.get("cityId") == OSIJEK_CITY_ID]
+            logging.info(f"Page {page}: {len(raw_items)} total returned, {len(osijek_items)} from Osijek")
+
             page_count = 0
-            for item in items:
+            for item in osijek_items:
                 parsed = parse_api_item(item)
                 if parsed and parsed["url"] not in seen_urls:
                     seen_urls.add(parsed["url"])
                     all_listings.append(parsed)
                     page_count += 1
 
-            logging.info(f"Found {page_count} new listings on page {page}")
+            if page_count == 0:
+                consecutive_empty_pages += 1
+                if consecutive_empty_pages >= EARLY_STOP_AFTER:
+                    logging.info(f"No Osijek listings for {EARLY_STOP_AFTER} consecutive pages, stopping early.")
+                    break
+            else:
+                consecutive_empty_pages = 0
+
+            logging.info(f"Added {page_count} new Osijek listings from page {page}")
 
             if page < max_pages:
                 time.sleep(1.0)
@@ -175,6 +217,7 @@ def scrape_index_osijek(max_pages: int = 2) -> List[Dict]:
             break
 
     return all_listings
+
 
 
 def run_index_scraper_and_save(max_pages: int = 2) -> Dict[str, int]:

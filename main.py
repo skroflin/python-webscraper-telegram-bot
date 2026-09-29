@@ -5,7 +5,7 @@ from notifier.telegram_notifier import send_telegram_notification
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-def run_pipeline(max_pages: int = 2):
+def run_pipeline(max_pages: int = 10):
     logging.info("\U0001F52A Starting scraping operation and notification of workflow...")
 
     listings = scrape_index_osijek(max_pages=max_pages)
@@ -27,4 +27,4 @@ def run_pipeline(max_pages: int = 2):
     logging.info(f"\U0001F680 Finished! New: {stats['inserted']}, updated prices: {stats['price_updated']}, send notifications: {stats['notified']}")
 
 if __name__ == "__main__":
-    run_pipeline(max_pages=2)
+    run_pipeline(max_pages=10)

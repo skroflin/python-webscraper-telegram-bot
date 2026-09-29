@@ -4,16 +4,17 @@ from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 def format_listing_message(listing: dict, event_type: str = "new") -> str:
     """Formatting ad data to a Telegram message."""
-    emoji_header = "\U0001F195**Novi oglas u Osijeku**\U0001F195" if event_type == "new" else "\U0001F4C9**Sniženje cijene!**\U0001F4C9"
+    emoji_header = "\U0001F195 **Novi oglas u Osijeku** \U0001F195" if event_type == "new" else "\U0001F4C9**Sniženje cijene!**\U0001F4C9"
 
     area_info = f"{listing['area_sqm']} m2" if listing.get("area_sqm") else "Nije navedeno"
 
     message = (
         f"{emoji_header}\n\n"
-        f"\U0001F3E2 **{listing['title']}**"
-        f"\U0001F4B0 **{listing['price']:.2f}**"
-        f"\U0001F4D0 **{area_info}**"
-        f"\U0001F517 \U000027A1 [Pogledaj oglas na index.hr]({listing['url']})"
+        f"\U0001F3E2 **{listing['title']}**\n"
+        f"\U0001F4B0 **Cijena: {listing['price']:.2f} €**\n"
+        f"\U0001F4D0 **Površina/Kvadratura: {area_info}**\n"
+        f"\n─────────────────\n"
+        f"\U0001F517 [Pogledaj oglas na index.hr]({listing['url']})"
     )
     return message
 
