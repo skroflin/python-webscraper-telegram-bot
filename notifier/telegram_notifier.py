@@ -3,10 +3,9 @@ import requests
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 def format_listing_message(listing: dict, event_type: str = "new") -> str:
-    """Formatting ad data to a Telegram message."""
-    emoji_header = "\U0001F195 **Novi oglas u Osijeku** \U0001F195" if event_type == "new" else "\U0001F4C9**Sniženje cijene!**\U0001F4C9"
-
+    emoji_header = "\U0001F195 **Novi oglas u Osijeku** \U0001F195" if event_type == "new" else "\U0001F4C9 **Sniženje cijene!** \U0001F4C9"
     area_info = f"{listing['area_sqm']} m2" if listing.get("area_sqm") else "Nije navedeno"
+    platform_name = listing.get("source_platform", "oglasniku")
 
     message = (
         f"{emoji_header}\n\n"
@@ -14,14 +13,14 @@ def format_listing_message(listing: dict, event_type: str = "new") -> str:
         f"\U0001F4B0 **Cijena: {listing['price']:.2f} €**\n"
         f"\U0001F4D0 **Površina/Kvadratura: {area_info}**\n"
         f"\n─────────────────\n"
-        f"\U0001F517 [Pogledaj oglas na index.hr]({listing['url']})"
+        f"\U0001F517 [Pogledaj oglas na {platform_name}]({listing['url']})"
     )
     return message
 
 def send_telegram_notification(listing: dict, event_type: str = "new") -> bool:
-    """Sending message to Telegram chat."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        logging.error("\u274C Telegram bot token or chat id not defined in .env file")
+        logging.error("\u274c Telegram bot token or chat ID is not defined in config.")
+        return False
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     text = format_listing_message(listing, event_type)
@@ -38,5 +37,5 @@ def send_telegram_notification(listing: dict, event_type: str = "new") -> bool:
         response.raise_for_status()
         return True
     except Exception as e:
-        logging.error(f"\u274C Notification sent unsuccessfully to Telegram: {e}")
+        logging.error(f"\u274c Failed to send Telegram notification: {e}")
         return False
