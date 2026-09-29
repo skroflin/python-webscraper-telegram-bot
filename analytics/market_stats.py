@@ -77,3 +77,21 @@ def get_neighborhood_stats() -> List[Dict]:
     except Exception as e:
         logging.error(f"\U0001F506 Error fetching neighborhood stats: {e}")
         return []
+
+def get_listings_by_neighborhood(neighborhood_name: str, limit: int = 5) -> List[Dict]:
+    try:
+        with get_connectivity() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT l.title, l.price, l.area_sqm, l.source_platform, l.url, loc.name as neighborhood
+                FROM listings l
+                JOIN locations loc ON l.location_id = loc.id
+                WHERE LOWER(loc.name) = LOWER(?) AND l.is_active = 1
+                ORDER BY l.created_at DESC
+                LIMIT ?
+            """, (neighborhood_name.strip(), limit))
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+    except Exception as e:
+        logging.error(f"\U0001F506 Error fetching listings for neighborhood {neighborhood_name}: {e}")
+        return []
