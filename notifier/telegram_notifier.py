@@ -11,6 +11,7 @@ from analytics.market_stats import (
     get_market_analytics,
     get_best_buy_listings,
     get_latest_listings,
+    get_neighborhood_stats,
 )
 from analytics.user_settings import (
     set_user_budget,
@@ -33,7 +34,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "\U0001F4CA **Analitika i pretraga:**\n\n"
         "- `/analitika` - prosječne cijene i statistika\n"
         "- `/best_buy` - najpovoljniji stanovi po m²\n"
-        "- `/najnovije` - zadnjih 5 stanova iz baze"
+        "- `/najnovije` - zadnjih 5 stanova iz baze\n"
+        "- `/kvartovi` - pregled cijena po osječkim kvartovima\n"
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
@@ -171,6 +173,30 @@ async def latest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
 
+async def neighborhoods_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    stats = get_neighborhood_stats()
+
+    if not stats:
+        await update.message.reply_text("\u2139\ufe0f Trenutno nema oglasa s dodijeljenim kvartovima u bazi.")
+        return
+
+    msg_lines = [
+        "\U0001F4CD **Prosječne cijene najma po kvartovima:**\n"
+    ]
+
+    for item in stats:
+        avg_price = item["avg_price"]
+        avg_sqm = item["avg_sqm_price"]
+        sqm_text = f"{avg_sqm:.2f} €/m²" if avg_sqm else "N/A"
+
+        line = (
+            f"\U0001F3E1 **{item['neighborhood']}** ({item['total_listings']} oglasa)\n"
+            f"- Prosječna cijena: **{avg_price:.2f} €**\n"
+            f"- Cijena po m²: **{sqm_text}**\n"
+        )
+        msg_lines.append(line)
+
+    await update.message.reply_text("\n".join(msg_lines), parse_mode="Markdown")
 
 def run_bot_listener():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
@@ -183,6 +209,7 @@ def run_bot_listener():
     app.add_handler(CommandHandler("analitika", analytics_command))
     app.add_handler(CommandHandler("best_buy", best_buy_command))
     app.add_handler(CommandHandler("najnovije", latest_command))
+    app.add_handler(CommandHandler("kvartovi", neighborhoods_command))
 
     logging.info("\U0001F916 Bot sluša vaše naredbe u Telegramu...")
     app.run_polling()

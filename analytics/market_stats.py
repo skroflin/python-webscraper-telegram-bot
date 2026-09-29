@@ -54,3 +54,26 @@ def get_latest_listings(limit: int = 5) -> List[Dict]:
     except Exception as e:
         logging.error(f"\U0001F506 Error fetching latest listings: {e}")
         return []
+
+def get_neighborhood_stats() -> List[Dict]:
+    try:
+        with get_connectivity() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    loc.name as neighborhood,
+                    COUNT(l.id) as total_listings,
+                    AVG(l.price) as avg_price,
+                    AVG(l.price / NULLIF(l.area_sqm, 0)) as avg_sqm_price
+                FROM locations loc
+                JOIN listings l ON loc.id = l.location_id
+                WHERE l.price > 0
+                GROUP BY loc.id, loc.name
+                HAVING total_listings > 0
+                ORDER BY avg_price DESC
+            """)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+    except Exception as e:
+        logging.error(f"\U0001F506 Error fetching neighborhood stats: {e}")
+        return []
