@@ -14,8 +14,7 @@ def format_listing_message(listing: dict, event_type: str = "new") -> str:
         f"\U0001F3E2 **{listing['title']}**\n"
         f"\U0001F4B0 **Cijena: {listing['price']:.2f} €**\n"
         f"\U0001F4D0 **Površina/Kvadratura: {area_info}**\n"
-        f"\n─────────────────\n"
-        f"\U0001F517 [Pogledaj oglas na {platform_name}]({listing['url']})"
+        f"\U0001F517\U00002B07 [Pogledaj oglas na {platform_name}]({listing['url']})"
     )
     return message
 
