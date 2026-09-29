@@ -26,7 +26,7 @@ def get_best_buy_listings(limit: int = 3) -> List[Dict]:
         with get_connectivity() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT title, price, area_sqm, (price / area_sqm) as price_per_sqm, url
+                SELECT id, title, price, area_sqm, (price / area_sqm) as price_per_sqm, url
                 FROM listings
                 WHERE area_sqm IS NOT NULL AND area_sqm > 0 AND price > 0
                 ORDER BY price_per_sqm ASC

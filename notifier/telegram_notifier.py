@@ -87,3 +87,44 @@ def send_telegram_notification(listing: dict, event_type: str = "new") -> bool:
             logging.error(f"\u274c Failed to send notification to chat {chat_id}: {e}")
 
     return success_count > 0
+
+def send_telegram_notification(listing: dict, event_type: str = "new") -> bool:
+    if not TELEGRAM_BOT_TOKEN:
+        logging.error("\u274c TELEGRAM_BOT_TOKEN is not defined.")
+        return False
+
+    chat_ids = get_target_chat_ids(listing)
+    if not chat_ids:
+        logging.info(f"\u2139\ufe0f No users match criteria for listing: {listing['title']}")
+        return False
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    text = format_listing_message(listing, event_type)
+
+    inline_keyboard = [
+        [{"text": "Pogledaj oglas \U0001F517", "url": listing["url"]}]
+    ]
+    if listing.get("id"):
+        inline_keyboard[0].append({
+            "text": "\u2B50 Spremi", 
+            "callback_data": f"save_{listing['id']}"
+        })
+
+    success_count = 0
+    for chat_id in chat_ids:
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": False,
+            "reply_markup": {"inline_keyboard": inline_keyboard}
+        }
+
+        try:
+            response = requests.post(url, json=payload, timeout=10)
+            response.raise_for_status()
+            success_count += 1
+        except Exception as e:
+            logging.error(f"\u274c Failed to send notification to chat {chat_id}: {e}")
+
+    return success_count > 0
