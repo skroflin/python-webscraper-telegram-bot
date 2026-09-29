@@ -57,7 +57,14 @@ def save_or_update_listing(listing_data: Dict, db_path: str = DB_PATH) -> Tuple[
                     (listing_id, old_price, price)
                 )
                 conn.commit()
-                return "price_updated", listing_id
+
+                listing_data["old_price"] = old_price
+                listing_data["id"] = listing_id
+
+                if price < old_price:
+                    return "price_drop", listing_id
+                else:
+                    return "price_increased", listing_id
 
             return "exists", listing_id
 

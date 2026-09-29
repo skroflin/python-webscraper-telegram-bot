@@ -5,7 +5,15 @@ from database.database import get_connectivity
 
 
 def format_listing_message(listing: dict, event_type: str = "new") -> str:
-    emoji_header = "\U0001F195 **Novi oglas u Osijeku** \U0001F195" if event_type == "new" else "\U0001F4C9 **Sniženje cijene!** \U0001F4C9"
+    if event_type == "price_drop":
+        old_price = listing.get("old_price", listing["price"])
+        emoji_header = (
+            "\U0001F4C9 **Sniženje cijene u Osijeku!** \U0001F4C9\n"
+            f"Stara cijena: ~~{old_price:.2f} €~~ ➡️ Nova cijena: **{listing['price']:.2f} €**"
+        )
+    else:
+        emoji_header = "\U0001F195 **Novi oglas u Osijeku** \U0001F195"
+
     area_info = f"{listing['area_sqm']} m²" if listing.get("area_sqm") else "Nije navedeno"
     platform_name = listing.get("source_platform", "oglasniku")
 
@@ -14,7 +22,7 @@ def format_listing_message(listing: dict, event_type: str = "new") -> str:
         f"\U0001F3E2 **{listing['title']}**\n"
         f"\U0001F4B0 **Cijena: {listing['price']:.2f} €**\n"
         f"\U0001F4D0 **Površina/Kvadratura: {area_info}**\n"
-        f"\U0001F517\U00002B07 [Pogledaj oglas na {platform_name}]({listing['url']})"
+        f"\U0001F517 [Pogledaj oglas na {platform_name}]({listing['url']})"
     )
     return message
 
