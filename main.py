@@ -15,7 +15,7 @@ def run_pipeline(max_pages: int = 10):
 
     listings = index_listings + njuskalo_listings
 
-    stats = {"inserted": 0, "price_drop": 0, "notified": 0}
+    stats = {"inserted": 0, "price_drop": 0, "duplicates": 0, "notified": 0}
 
     for item in listings:
         status, listing_id = save_or_update_listing(item)
@@ -33,9 +33,14 @@ def run_pipeline(max_pages: int = 10):
             if send_telegram_notification(item, event_type="price_drop"):
                 stats["notified"] += 1
 
+        elif status in ("duplicate_cross_post", "DUPLICATE_CROSS_POST"):
+            stats["duplicates"] += 1
+            logging.info(f"ℹ️ Preskočena obavijest za duplikat (ID {listing_id}): {item['title']}")
+
     logging.info(
         f"\U0001f680 Finished! New: {stats['inserted']}, "
         f"price drops: {stats['price_drop']}, "
+        f"duplicates: {stats['duplicates']}, "
         f"sent notifications: {stats['notified']}"
     )
 

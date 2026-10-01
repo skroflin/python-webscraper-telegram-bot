@@ -1,8 +1,60 @@
 import hashlib
 import os
 import sqlite3
+from difflib import SequenceMatcher
 from typing import Dict, Optional, Tuple
 from config import DB_PATH
+
+def text_similarity(str1: str, str2: str) -> float:
+    """Calculating percentage of similarity between two texts (0.0 do 1.0)."""
+    if not str1 or not str2:
+        return 0.0
+    return SequenceMatcher(None, str1.lower(), str2.lower()).ratio()
+
+def find_cross_post_duplicate(cursor, listing_data: Dict) -> Optional[int]:
+    """
+    Searching if the same apartment is already posted on another platform.
+    Criteria:
+    1. Different platform (e.g. Index vs Njuškalo)
+    2. Price in range of ±5%
+    3. Area in range of ±3 m² (if defined)
+    4. Same neighborhood / location_id (if defined)
+    5. Title similarity >= 75%
+    """
+    price = float(listing_data["price"])
+    area = listing_data.get("area_sqm")
+    title = listing_data["title"]
+    location_id = listing_data.get("location_id")
+    platform = listing_data.get("source_platform")
+
+    min_price, max_price = price * 0.95, price * 1.05
+
+    cursor.execute("""
+        SELECT id, title, price, area_sqm, location_id, source_platform
+        FROM listings
+        WHERE is_active = 1
+          AND price BETWEEN ? AND ?
+          AND source_platform != ?
+    """, (min_price, max_price, platform))
+
+    candidates = cursor.fetchall()
+
+    for cand in candidates:
+        cand_area = cand["area_sqm"]
+        if area and cand_area:
+            if abs(area - cand_area) > 3.0:
+                continue
+
+        cand_loc = cand["location_id"]
+        if location_id and cand_loc and location_id != cand_loc:
+            continue
+
+        
+        sim_score = text_similarity(title, cand["title"])
+        if sim_score >= 0.75:
+            return cand["id"]
+
+    return None
 
 def get_connectivity(db_path: str = DB_PATH) -> sqlite3.Connection:
     """Return connection to SQLite db with enabled foreign keys."""
@@ -30,7 +82,6 @@ def generate_content_hash(title: str, price: float, area_sqm: Optional[float]) -
     return hashlib.sha256(raw_data.encode("utf-8")).hexdigest()
 
 def save_or_update_listing(listing_data: Dict, db_path: str = DB_PATH) -> Tuple[str, Optional[int]]:
-    """Saving new posting or updating existing if there is a price change."""
     url = listing_data["url"]
     price = float(listing_data["price"])
     title = listing_data["title"]
@@ -41,7 +92,7 @@ def save_or_update_listing(listing_data: Dict, db_path: str = DB_PATH) -> Tuple[
     with get_connectivity(db_path) as conn:
         cursor = conn.cursor()
 
-        cursor.execute("select id, price from listings where url = ?", (url,))
+        cursor.execute("SELECT id, price FROM listings WHERE url = ?", (url,))
         existing_url = cursor.fetchone()
 
         if existing_url:
@@ -49,11 +100,11 @@ def save_or_update_listing(listing_data: Dict, db_path: str = DB_PATH) -> Tuple[
 
             if old_price != price:
                 cursor.execute(
-                    "update listings set price = ?, updated_at = current_timestamp where id = ?",
+                    "UPDATE listings SET price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                     (price, listing_id)
                 )
                 cursor.execute(
-                    "insert into price_history (listing_id, old_price, new_price) values (?, ?, ?)",
+                    "INSERT INTO price_history (listing_id, old_price, new_price) VALUES (?, ?, ?)",
                     (listing_id, old_price, price)
                 )
                 conn.commit()
@@ -68,16 +119,15 @@ def save_or_update_listing(listing_data: Dict, db_path: str = DB_PATH) -> Tuple[
 
             return "exists", listing_id
 
-        cursor.execute("select id from listings where content_hash = ? and is_active = 1", (content_hash,))
-        existing_hash = cursor.fetchone()
-        if existing_hash:
-            return "duplicate_cross_point", existing_hash["id"]
+        duplicate_id = find_cross_post_duplicate(cursor, listing_data)
+        if duplicate_id:
+            return "duplicate_cross_post", duplicate_id
 
         sql_insert = """
-            insert into listings (
+            INSERT INTO listings (
                 external_id, source_platform, title, description, price,
                 area_sqm, location_id, raw_address, url, image_url, content_hash
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
         cursor.execute(sql_insert, (
