@@ -35,6 +35,8 @@ from analytics.user_settings import (
     get_user_neighborhoods,
 )
 
+from analytics.charts import generate_neighborhood_price_chart
+
 logging.basicConfig(level=logging.INFO)
 
 
@@ -53,6 +55,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- `/best_buy` - najpovoljniji stanovi po m²\n"
         "- `/najnovije` - zadnjih 5 stanova iz baze\n"
         "- `/spremljeno` - vaši omiljeni/spremljeni oglasi \u2B50"
+        "- `/graf` - grafička analiza cijena po kvartovima\n"
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
@@ -405,6 +408,19 @@ def scheduled_scrape_job():
     except Exception as e:
         logging.error(f"\u274c Greška pri izvođenju zakazanog skrepanja: {e}")
 
+async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("\U0001F4CA Generiram grafičku analitiku...")
+
+    buf = generate_neighborhood_price_chart()
+    if not buf:
+        await update.message.reply_text("\U00002139 Nema dovoljno podataka o kvartovima i m² za izradu grafa.")
+        return
+
+    await update.message.reply_photo(
+        photo=buf,
+        caption="\U0001F4C8 **Analitika tržišta najma po osječkim kvartovima (€/m²)**",
+        parse_mode="Markdown"
+    )
 
 def run_bot_listener():
     scheduler = BackgroundScheduler()
@@ -429,6 +445,8 @@ def run_bot_listener():
     app.add_handler(CommandHandler("dodaj_kvart", add_neighborhood_command))
     app.add_handler(CommandHandler("ukloni_kvart", remove_neighborhood_command))
     app.add_handler(CommandHandler("moji_kvartovi", my_neighborhoods_command))
+
+    app.add_handler(CommandHandler("graf", graph_command))
 
     app.add_handler(CallbackQueryHandler(button_callback_handler))
 
