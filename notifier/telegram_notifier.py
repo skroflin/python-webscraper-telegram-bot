@@ -36,21 +36,28 @@ def get_target_chat_ids(listing: dict) -> list:
             cursor.execute("SELECT telegram_id, max_price, min_area FROM users")
             users = cursor.fetchall()
 
-        price = listing.get("price", 0)
-        area = listing.get("area_sqm")
+            price = listing.get("price", 0)
+            area = listing.get("area_sqm")
+            location_id = listing.get("location_id")
 
-        for user in users:
-            chat_id = user["telegram_id"]
-            max_price = user["max_price"]
-            min_area = user["min_area"]
+            for user in users:
+                chat_id = user["telegram_id"]
+                max_price = user["max_price"]
+                min_area = user["min_area"]
 
-            if max_price is not None and price > max_price:
-                continue
+                if max_price is not None and price > max_price:
+                    continue
 
-            if min_area is not None and area is not None and area < min_area:
-                continue
+                if min_area is not None and area is not None and area < min_area:
+                    continue
 
-            target_ids.add(chat_id)
+                cursor.execute("SELECT location_id FROM user_locations WHERE user_id = ?", (chat_id,))
+                user_locs = [row["location_id"] for row in cursor.fetchall()]
+
+                if user_locs and location_id not in user_locs:
+                    continue
+
+                target_ids.add(chat_id)
 
     except Exception as e:
         logging.error(f"\u274c Error fetching user filters: {e}")

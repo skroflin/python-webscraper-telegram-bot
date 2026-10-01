@@ -1,3 +1,4 @@
+from telegram import _keyboardbuttonpolltype
 import logging
 import sys
 from pathlib import Path
@@ -29,6 +30,9 @@ from analytics.user_settings import (
     save_listing,
     remove_saved_listing,
     get_saved_listings,
+    add_user_neighborhood,
+    remove_user_neighborhood,
+    get_user_neighborhoods,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -328,6 +332,72 @@ async def send_listing_item(update: Update, text: str, item: dict, reply_markup:
         reply_markup=reply_markup
     )
 
+async def add_neighborhood_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not context.args:
+        await update.message.reply_text(
+            "\U000026A0 Navedite naziv kvarta. Primjer: `/dodaj_kvart Retfala`",
+            parse_mode="Markdown"
+        )
+        return
+
+    neighborhood_name = " ".join(context.args)
+    success, message = add_user_neighborhood(user.id, user.first_name, neighborhood_name)
+
+    if success:
+        await update.message.reply_text(
+            f"\U00002705 Kvart **{message}** je dodan na vašu listu praćenja!\n"
+            f"Sada ćete primati obavijesti samo za vaše odabrane kvartove.",
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(f"\U0000274c {message}", parse_mode="Markdown")
+
+
+async def remove_neighborhood_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not context.args:
+        await update.message.reply_text(
+            "\U000026A0 Navedite naziv kvarta. Primjer: `/ukloni_kvart Retfala`",
+            parse_mode="Markdown"
+        )
+        return
+
+    neighborhood_name = " ".join(context.args)
+    success, message = remove_user_neighborhood(user.id, neighborhood_name)
+
+    if success:
+        await update.message.reply_text(
+            f"\U0001F5D1\ufe0f Kvart **{message}** je uklonjen s vaše liste praćenja.",
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(f"\U0000274c {message}", parse_mode="Markdown")
+
+
+async def my_neighborhoods_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    neighborhoods = get_user_neighborhoods(user.id)
+
+    if not neighborhoods:
+        await update.message.reply_text(
+            "\U0001F4CD **Nemate postavljenih kvartova za filtriranje.**\n"
+            "Primate obavijesti za sve dijelove grada Osijeka.\n\n"
+            "Dodajte kvart naredbom: `/dodaj_kvart Retfala`",
+            parse_mode="Markdown"
+        )
+        return
+
+    list_text = "\n".join([f"• **{name}**" for name in neighborhoods])
+    msg = (
+        f"\U0001F4CD **Vaši odabrani kvartovi za obavijesti ({len(neighborhoods)}):**\n\n"
+        f"{list_text}\n\n"
+        "Upravljanje:\n"
+        "- `/dodaj_kvart <naziv>` - dodaj novi kvart\n"
+        "- `/ukloni_kvart <naziv>` - ukloni kvart"
+    )
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
 def scheduled_scrape_job():
     logging.info("\u23f1\ufe0f Pokretanje automatskog pozadinskog skrepanja...")
     try:
@@ -356,6 +426,9 @@ def run_bot_listener():
     app.add_handler(CommandHandler("najnovije", latest_command))
     app.add_handler(CommandHandler("kvart", neighborhood_listings_command))
     app.add_handler(CommandHandler("spremljeno", saved_command))
+    app.add_handler(CommandHandler("dodaj_kvart", add_neighborhood_command))
+    app.add_handler(CommandHandler("ukloni_kvart", remove_neighborhood_command))
+    app.add_handler(CommandHandler("moji_kvartovi", my_neighborhoods_command))
 
     app.add_handler(CallbackQueryHandler(button_callback_handler))
 

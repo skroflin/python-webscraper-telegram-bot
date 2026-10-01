@@ -72,3 +72,11 @@ INSERT OR IGNORE INTO locations (name, latitude, longitude) VALUES
 ('Novi Grad', 45.5450, 18.7000);
 
 ALTER TABLE listings ADD COLUMN image_url TEXT;
+
+CREATE TABLE IF NOT EXISTS user_locations (
+    user_id INTEGER NOT NULL,
+    location_id INTEGER NOT NULL,
+    PRIMARY KEY (user_id, location_id),
+    FOREIGN KEY (user_id) REFERENCES users (telegram_id) ON DELETE CASCADE,
+    FOREIGN KEY (location_id) REFERENCES locations (id) ON DELETE CASCADE
+);

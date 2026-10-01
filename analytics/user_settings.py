@@ -118,3 +118,72 @@ def get_saved_listings(telegram_id: int) -> list:
     except Exception as e:
         logging.error(f"\u274c Error fetching saved listings for user {telegram_id}: {e}")
         return []
+
+def add_user_neighborhood(telegram_id: int, first_name: str, neighborhood_name: str) -> tuple[bool, str]:
+    """Adding neihborhood to user preferences."""
+    try:
+        with get_connectivity() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                INSERT INTO users (telegram_id, first_name)
+                VALUES (?, ?)
+                ON CONFLICT(telegram_id) DO UPDATE SET first_name = excluded.first_name
+            """, (telegram_id, first_name))
+            
+            cursor.execute("SELECT id, name FROM locations WHERE LOWER(name) = LOWER(?)", (neighborhood_name.strip(),))
+            loc = cursor.fetchone()
+
+            if not loc:
+                return False, f"Kvart **'{neighborhood_name}'** nije pronađen u bazi."
+            
+            cursor.execute("""
+                INSERT OR IGNORE INTO user_locations (user_id, location_id)
+                VALUES (?, ?)
+            """, (telegram_id, loc["id"]))
+            conn.commit()
+
+            return True, loc["name"]
+    except Exception as e:
+        logging.error(f"Error adding neighborhood for user {telegram_id}: {e}")
+        return False, "Greška pri upisu u bazu."
+
+
+def remove_user_neighborhood(telegram_id: int, neighborhood_name: str) -> tuple[bool, str]:
+    """Removing neighborhood from user preferences."""
+    try:
+        with get_connectivity() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                DELETE FROM user_locations
+                WHERE user_id = ? AND location_id IN (
+                    SELECT id FROM locations WHERE LOWER(name) = LOWER(?)
+                )
+            """, (telegram_id, neighborhood_name.strip()))
+            
+            if cursor.rowcount > 0:
+                conn.commit()
+                return True, neighborhood_name
+            return False, f"Kvart **'{neighborhood_name}'** nije bio na vašoj listi."
+    except Exception as e:
+        logging.error(f"Error removing neighborhood for user {telegram_id}: {e}")
+        return False, "Greška pri brisanju iz baze."
+
+
+def get_user_neighborhoods(telegram_id: int) -> list[str]:
+    """Getting user neighborhoods from database."""
+    try:
+        with get_connectivity() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT l.name 
+                FROM locations l
+                JOIN user_locations ul ON l.id = ul.location_id
+                WHERE ul.user_id = ?
+                ORDER BY l.name ASC
+            """, (telegram_id,))
+            rows = cursor.fetchall()
+            return [row["name"] for row in rows]
+    except Exception as e:
+        logging.error(f"Error fetching neighborhoods for user {telegram_id}: {e}")
+        return []
