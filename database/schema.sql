@@ -70,3 +70,5 @@ INSERT OR IGNORE INTO locations (name, latitude, longitude) VALUES
 ('Vatrogasno naselje', 45.5480, 18.6850),
 ('Gornji Grad', 45.5570, 18.6800),
 ('Novi Grad', 45.5450, 18.7000);
+
+ALTER TABLE listings ADD COLUMN image_url TEXT;

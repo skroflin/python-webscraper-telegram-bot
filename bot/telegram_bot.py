@@ -204,7 +204,7 @@ async def latest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+        await send_listing_item(update, text, item, reply_markup)
 
 
 async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -307,6 +307,26 @@ async def neighborhood_listings_command(update: Update, context: ContextTypes.DE
 
         await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
 
+async def send_listing_item(update: Update, text: str, item: dict, reply_markup: InlineKeyboardMarkup):
+    """Sending photo message if a image_url exist, in contrast sending plain text."""
+    image_url = item.get("image_url")
+    if image_url:
+        try:
+            await update.message.reply_photo(
+                photo=image_url,
+                caption=text,
+                parse_mode="Markdown",
+                reply_markup=reply_markup
+            )
+            return
+        except Exception as e:
+            logging.warning(f"Failed to send photo for listing {item.get('id')}: {e}")
+
+    await update.message.reply_text(
+        text=text,
+        parse_mode="Markdown",
+        reply_markup=reply_markup
+    )
 
 def scheduled_scrape_job():
     logging.info("\u23f1\ufe0f Pokretanje automatskog pozadinskog skrepanja...")

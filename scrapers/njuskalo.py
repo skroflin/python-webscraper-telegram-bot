@@ -123,6 +123,13 @@ def parse_njuskalo_card(card: BeautifulSoup) -> Optional[Dict]:
     ext_id = extract_external_id(url)
     location_id = match_location_id(combined_text)
 
+    img_tag = card.find("img", class_="entity-thumbnail-img") or card.find("img")
+    image_url = None
+    if img_tag:
+        image_url = img_tag.get("data-src") or img_tag.get("src")
+        if image_url and image_url.startswith("//"):
+            image_url = "https:" + image_url
+
     return {
         "external_id": ext_id,
         "source_platform": "Njuškalo",
@@ -133,6 +140,7 @@ def parse_njuskalo_card(card: BeautifulSoup) -> Optional[Dict]:
         "location_id": location_id,
         "raw_address": "Osijek",
         "url": url,
+        "image_url": image_url,
     }
 
 

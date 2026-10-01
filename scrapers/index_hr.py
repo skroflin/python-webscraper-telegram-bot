@@ -111,6 +111,8 @@ def parse_api_item(item: Dict) -> Optional[Dict]:
     description = f"Naselje/Kvart: {settlement}".strip() if settlement else ""
     location_id = match_location_id(f"{title} {settlement}")
 
+    image_url = item.get("iconUrl") or item.get("imageUrl") or item.get("image") or item.get("defaultImage")
+
     return {
         "external_id": str(code),
         "source_platform": "Index Oglasnik",
@@ -121,6 +123,7 @@ def parse_api_item(item: Dict) -> Optional[Dict]:
         "location_id": location_id,
         "raw_address": f"Osijek, {settlement}".strip(", "),
         "url": url,
+        "image_url": image_url,
     }
 
 
@@ -336,6 +339,11 @@ def extract_from_html(soup: BeautifulSoup) -> List[Dict]:
 
         ext_id = url.rstrip("/").split("/")[-1].replace(".aspx", "")
 
+        img_tag = card.find("img")
+        image_url = None
+        if img_tag:
+            image_url = img_tag.get("src") or img_tag.get("data-src")
+
         listings.append({
             "external_id": ext_id,
             "source_platform": "Index Oglasnik",
@@ -346,6 +354,7 @@ def extract_from_html(soup: BeautifulSoup) -> List[Dict]:
             "location_id": match_location_id(title),
             "raw_address": "Osijek",
             "url": url,
+            "image_url": image_url,
         })
 
     return listings
