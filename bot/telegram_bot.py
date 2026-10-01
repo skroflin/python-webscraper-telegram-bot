@@ -42,7 +42,7 @@ logging.basicConfig(level=logging.INFO)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
-        "\U0001F44B **Bok! Ja sam tvoj Osijek Stanovi Bot.**\n\n"
+        "\U0001F44B **Bok! Ja sam tvoj Osijek Stanovi Bot.** \U0001F916\n\n"
         "\u2699\ufe0f **Korisnički filteri za obavijesti:**\n"
         "- `/postavi_budzet <cijena>` - postavi max cijenu (npr. `/postavi_budzet 400`)\n"
         "- `/postavi_kvadraturu <m2>` - postavi min površinu (npr. `/postavi_kvadraturu 35`)\n"
@@ -52,7 +52,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- `/analitika` - prosječne cijene i ukupna statistika\n"
         "- `/kvartovi` - pregled cijena po osječkim kvartovima\n"
         "- `/kvart <ime kvarta>` - pregled oglasa u kvartu (npr. `/kvart Retfala`)\n"
-        "- `/best_buy` - najpovoljniji stanovi po m²\n"
+        "- `/best_buy` - najpovoljniji stanovi po m^2\n"
         "- `/najnovije` - zadnjih 5 stanova iz baze\n"
         "- `/spremljeno` - vaši omiljeni/spremljeni oglasi \u2B50"
         "- `/graf` - grafička analiza cijena po kvartovima\n"
@@ -91,7 +91,7 @@ async def set_area_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             raise ValueError
 
         if set_user_min_area(user.id, user.first_name, area):
-            await update.message.reply_text(f"\u2705 Minimalna kvadratura postavljena na **{area:.1f} m²**.", parse_mode="Markdown")
+            await update.message.reply_text(f"\u2705 Minimalna kvadratura postavljena na **{area:.1f} m^2**.", parse_mode="Markdown")
         else:
             await update.message.reply_text("\u274c Greška pri spremanju kvadrature u bazu.")
     except ValueError:
@@ -112,7 +112,7 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         budget = f"**{profile['max_price']:.2f} €**" if profile.get("max_price") else "Nije postavljen (svi oglasi)"
-        area = f"**{profile['min_area']:.1f} m²**" if profile.get("min_area") else "Nije postavljeno (sve kvadrature)"
+        area = f"**{profile['min_area']:.1f} m^2**" if profile.get("min_area") else "Nije postavljeno (sve kvadrature)"
         msg = (
             f"\U0001F464 **Moje postavke obavijesti ({user.first_name})**\n\n"
             f"\U0001F4B0 Maksimalna cijena: {budget}\n"
@@ -145,7 +145,7 @@ async def saved_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"\u2B50 **Vaši spremljeni oglasi ({len(listings)}):**", parse_mode="Markdown")
 
     for item in listings:
-        area = f"{item['area_sqm']} m²" if item.get("area_sqm") else "Nije navedeno"
+        area = f"{item['area_sqm']} m^2" if item.get("area_sqm") else "Nije navedeno"
         text = (
             f"\U0001F31F **{item['title']}**\n\n"
             f"\U0001F4B0 cijena: **{item['price']:.2f} €**\n"
@@ -198,7 +198,7 @@ async def latest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\U0001F4CB **Zadnjih 5 stanova u bazi:**", parse_mode="Markdown")
 
     for item in listings:
-        area = f"{item['area_sqm']} m²" if item.get("area_sqm") else "Nije navedeno"
+        area = f"{item['area_sqm']} m^2" if item.get("area_sqm") else "Nije navedeno"
         text = (
             f"\U0001F31F **{item['title']}**\n\n"
             f"\U0001F4B0 cijena: **{item['price']:.2f} €**\n"
@@ -225,7 +225,7 @@ async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "\U0001F4CA **Analitika tržišta najma u Osijeku**\n\n"
         f"- ukupno stanova u bazi: **{stats['total']}**\n"
         f"- prosječna mjesečna najamnina: **{stats['avg_price']:.2f} €**\n"
-        f"- prosječna cijena po m²: **{stats['avg_sqm_price']:.2f} €/m²**"
+        f"- prosječna cijena po m^2: **{stats['avg_sqm_price']:.2f} €/m^2**"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
@@ -242,12 +242,12 @@ async def neighborhoods_command(update: Update, context: ContextTypes.DEFAULT_TY
     for item in stats:
         avg_price = item["avg_price"]
         avg_sqm = item["avg_sqm_price"]
-        sqm_text = f"{avg_sqm:.2f} €/m²" if avg_sqm else "N/A"
+        sqm_text = f"{avg_sqm:.2f} €/m^2" if avg_sqm else "N/A"
 
         msg_text += (
             f"\U0001F4B0\U0001F4B8 **{item['neighborhood']}** ({item['total_listings']} oglasa)\n"
             f"- prosječna cijena: **{avg_price:.2f} €**\n"
-            f"- cijena po m²: **{sqm_text}**\n\n"
+            f"- cijena po m^2: **{sqm_text}**\n\n"
         )
 
     await update.message.reply_text(msg_text, parse_mode="Markdown")
@@ -260,13 +260,13 @@ async def best_buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\u2139\ufe0f Nema dovoljno podataka o kvadraturama za izračun.")
         return
 
-    await update.message.reply_text("\U0001F31F **Top 3 najpovoljnija stana po m²:**", parse_mode="Markdown")
+    await update.message.reply_text("\U0001F31F **Top 3 najpovoljnija stana po m^2:**", parse_mode="Markdown")
 
     for item in listings:
         text = (
             f"\U0001F31F **{item['title']}**\n\n"
-            f"\U0001F4B0 Cijena: **{item['price']:.2f} €** ({item['price_per_sqm']:.2f} €/m²)\n"
-            f"\U0001F4D0 Površina: **{item['area_sqm']} m²**\n"
+            f"\U0001F4B0 Cijena: **{item['price']:.2f} €** ({item['price_per_sqm']:.2f} €/m^2)\n"
+            f"\U0001F4D0 Površina: **{item['area_sqm']} m^2**\n"
         )
         keyboard = [[
             InlineKeyboardButton("Pogledaj priliku \U0001F517", url=item["url"]),
@@ -302,7 +302,7 @@ async def neighborhood_listings_command(update: Update, context: ContextTypes.DE
     )
 
     for item in listings:
-        area = f"{item['area_sqm']} m²" if item.get("area_sqm") else "Nije navedeno"
+        area = f"{item['area_sqm']} m^2" if item.get("area_sqm") else "Nije navedeno"
         text = (
             f"\U0001F31F **{item['title']}**\n\n"
             f"\U0001F4B0 cijena: **{item['price']:.2f} €**\n"
@@ -413,12 +413,12 @@ async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     buf = generate_neighborhood_price_chart()
     if not buf:
-        await update.message.reply_text("\U00002139 Nema dovoljno podataka o kvartovima i m² za izradu grafa.")
+        await update.message.reply_text("\U00002139 Nema dovoljno podataka o kvartovima i m^2 za izradu grafa.")
         return
 
     await update.message.reply_photo(
         photo=buf,
-        caption="\U0001F4C8 **Analitika tržišta najma po osječkim kvartovima (€/m²)**",
+        caption="\U0001F4C8 **Analitika tržišta najma po osječkim kvartovima (€/m^2)**",
         parse_mode="Markdown"
     )
 

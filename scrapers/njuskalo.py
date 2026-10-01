@@ -44,7 +44,7 @@ def parse_price(price_raw) -> float:
 def parse_area(text: Optional[str]) -> Optional[float]:
     if not text:
         return None
-    match = re.search(r"(\d+([\.,]\d+)?)\s*(m2|m²|kvadrat|kvadrata|kvm)", str(text), re.IGNORECASE)
+    match = re.search(r"(\d+([\.,]\d+)?)\s*(m2|m²|kvadrat|kvadrata|kvm|m^2)", str(text), re.IGNORECASE)
     if match:
         val = match.group(1).replace(",", ".")
         return float(val)
