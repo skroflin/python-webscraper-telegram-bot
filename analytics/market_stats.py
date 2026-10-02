@@ -44,7 +44,7 @@ def get_latest_listings(limit: int = 5) -> List[Dict]:
         with get_connectivity() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT title, price, area_sqm, source_platform, url
+                SELECT id, title, price, area_sqm, source_platform, url
                 FROM listings
                 ORDER BY created_at DESC
                 LIMIT ?
