@@ -51,17 +51,17 @@ def format_feature_badges(title: str = "", description: str = "") -> str:
     badges = []
 
     if features["pet_friendly"]:
-        badges.append("\U0001F436 Pet friendly")
+        badges.append("- \U0001F436 Pet friendly\n")
     if features["parking"]:
-        badges.append("\U0001F17F\ufe0f Parking / Garaža")
+        badges.append("- \U0001F17F\ufe0f Parking / Garaža\n")
     if features["balcony"]:
-        badges.append("\U0001F305 Balkon / Terasa")
+        badges.append("- \U0001F305 Balkon / Terasa\n")
     if features["heating"]:
-        badges.append("\u2668\ufe0f Etažno / Gradsko grijanje")
+        badges.append("- \u2668\ufe0f Etažno / Gradsko grijanje\n")
     if features["elevator"]:
-        badges.append("\U0001F6D7 Lift")
+        badges.append("- \U0001F6D7 Lift\n")
 
     if not badges:
         return ""
 
-    return f"\u2728 **Značajke:** {' | '.join(badges)}\n"
+    return f"\u2728 **Značajke:**\n{''.join(badges)}"

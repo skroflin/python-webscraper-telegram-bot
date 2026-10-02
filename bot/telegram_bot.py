@@ -289,9 +289,9 @@ async def best_buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = (
             f"\U0001F31F **{item['title']}**\n\n"
             f"{neighborhood_str}"
-            f"\U0001F4B0 Cijena: **{item['price']:.2f} €** ({item['price_per_sqm']:.2f} €/m^2)\n"
+            f"\U0001F4B0 Cijena: **{item['price']:.2f} €**\n"
             f"\U0001F4D0 Površina: **{item['area_sqm']} m^2**\n\n"
-            f"{badges}"
+            f"{badges}\n"
             f"{poi_str}"
         )
         keyboard = [[
