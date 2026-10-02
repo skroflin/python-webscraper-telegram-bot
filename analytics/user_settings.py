@@ -187,3 +187,56 @@ def get_user_neighborhoods(telegram_id: int) -> list[str]:
     except Exception as e:
         logging.error(f"Error fetching neighborhoods for user {telegram_id}: {e}")
         return []
+
+def get_all_locations() -> list[dict]:
+    """Fetching all available neighborhoods from db ordered by name."""
+    try:
+        with get_connectivity() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, name FROM locations ORDER BY name ASC")
+            return [dict(row) for row in cursor.fetchall()]
+    except Exception as e:
+        logging.error(f"Error fetching all locations: {e}")
+        return []
+
+
+def get_user_location_ids(telegram_id: int) -> set[int]:
+    """Fetching set of location ids that user currently follows."""
+    try:
+        with get_connectivity() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT location_id FROM user_locations WHERE user_id = ?", (telegram_id,))
+            return {row["location_id"] for row in cursor.fetchall()}
+    except Exception as e:
+        logging.error(f"Error fetching user location IDs: {e}")
+        return set()
+
+
+def toggle_user_neighborhood_by_id(telegram_id: int, location_id: int) -> bool:
+    """Turning on or off the neighborhood from the user's list. Returns `True` if added, `False` if removed."""
+    try:
+        with get_connectivity() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM user_locations WHERE user_id = ? AND location_id = ?",
+                (telegram_id, location_id)
+            )
+            exists = cursor.fetchone()
+
+            if exists:
+                cursor.execute(
+                    "DELETE FROM user_locations WHERE user_id = ? AND location_id = ?",
+                    (telegram_id, location_id)
+                )
+                conn.commit()
+                return False
+            else:
+                cursor.execute(
+                    "INSERT INTO user_locations (user_id, location_id) VALUES (?, ?)",
+                    (telegram_id, location_id)
+                )
+                conn.commit()
+                return True
+    except Exception as e:
+        logging.error(f"Error toggling neighborhood id {location_id} for user {telegram_id}: {e}")
+        return False

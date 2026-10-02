@@ -33,6 +33,9 @@ from analytics.user_settings import (
     add_user_neighborhood,
     remove_user_neighborhood,
     get_user_neighborhoods,
+    get_all_locations,
+    get_user_location_ids,
+    toggle_user_neighborhood_by_id,
 )
 
 from analytics.charts import generate_neighborhood_price_chart
@@ -422,11 +425,168 @@ async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+def build_main_settings_keyboard() -> InlineKeyboardMarkup:
+    """Building main settings menu keyboard with inline buttons."""
+    keyboard = [
+        [
+            InlineKeyboardButton("\U0001f4b0 Postavi budžet", callback_data="cb_settings_budget"),
+            InlineKeyboardButton("\U0001f4d0 Min. kvadratura", callback_data="cb_settings_area"),
+        ],
+        [
+            InlineKeyboardButton("\U0001f4cd Moji kvartovi", callback_data="cb_settings_neighborhoods"),
+            InlineKeyboardButton("\U0001f504 Resetiraj filtere", callback_data="cb_settings_reset"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_neighborhoods_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
+    """Building interactive keyboard for selecting neighborhoods with checkmarks."""
+    locations = get_all_locations()
+    selected_ids = get_user_location_ids(telegram_id)
+
+    keyboard = []
+    row = []
+
+    for loc in locations:
+        loc_id = loc["id"]
+        loc_name = loc["name"]
+
+        if loc_id in selected_ids:
+            prefix = "\u2705 "
+        else:
+            prefix = "\u274c "
+
+        button_text = f"{prefix}{loc_name}"
+        callback_data = f"cb_toggle_loc_{loc_id}"
+
+        row.append(InlineKeyboardButton(button_text, callback_data=callback_data))
+
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+
+    if row:
+        keyboard.append(row)
+
+    keyboard.append([
+        InlineKeyboardButton("\u2b05\ufe0f Back to settings", callback_data="cb_settings_main")
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler for /settings command."""
+    user = update.effective_user
+    profile = get_user_profile(user.id)
+
+    budget_str = f"{profile['max_price']} \u20ac" if profile and profile.get("max_price") else "Not set"
+    area_str = f"{profile['min_area']} m\u00b2" if profile and profile.get("min_area") else "Not set"
+
+    msg = (
+        f"\u2699\ufe0f **Korisničke postavke i filteri**\n\n"
+        f"\u2022 Trenutni budžet: **{budget_str}**\n"
+        f"\u2022 Min. kvadratura: **{area_str}**\n\n"
+        f"Odaberite opciju za prilagodbu:"
+    )
+
+    await update.message.reply_text(
+        msg,
+        reply_markup=build_main_settings_keyboard(),
+        parse_mode="Markdown"
+    )
+
+
+async def settings_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Central handler for inline button interactions in settings."""
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+    data = query.data
+
+    if data == "cb_settings_main":
+        profile = get_user_profile(user.id)
+        budget_str = f"{profile['max_price']} \u20ac" if profile and profile.get("max_price") else "Not set"
+        area_str = f"{profile['min_area']} m\u00b2" if profile and profile.get("min_area") else "Not set"
+
+        msg = (
+            f"\u2699\ufe0f **Korisničke postavke i filteri**\n\n"
+            f"\u2022 Trenutni budžet: **{budget_str}**\n"
+            f"\u2022 Min. kvadratura: **{area_str}**\n\n"
+            f"Odaberite opciju za prilagodbu:"
+        )
+        await query.edit_message_text(
+            msg,
+            reply_markup=build_main_settings_keyboard(),
+            parse_mode="Markdown"
+        )
+
+    elif data == "cb_settings_neighborhoods":
+        status_note = (
+            "Primate obavijesti samo za **označene kvartove (\u2705)**.\n"
+            "Ako nijedan kvart nije označen, primate obavijesti za sve kvartove."
+        )
+        msg = (
+            f"\U0001f4cd **Odabir kvartova za praćenje**\n\n"
+            f"{status_note}\n\n"
+            f"Kliknite na kvart za uključivanje/isključivanje:"
+        )
+        await query.edit_message_text(
+            msg,
+            reply_markup=build_neighborhoods_keyboard(user.id),
+            parse_mode="Markdown"
+        )
+
+    elif data.startswith("cb_toggle_loc_"):
+        loc_id = int(data.replace("cb_toggle_loc_", ""))
+        toggle_user_neighborhood_by_id(user.id, loc_id)
+
+        await query.edit_message_reply_markup(
+            reply_markup=build_neighborhoods_keyboard(user.id)
+        )
+
+    elif data == "cb_settings_budget":
+        msg = (
+            f"\U0001f4b0 **Postavljanje budžeta**\n\n"
+            f"Za postavljanje maksimalnog iznosa najma pošaljite poruku u chatu u formatu:\n"
+            f"`/budzet <iznos>`\n\n"
+            f"Primjer: `/budzet 450`"
+        )
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("\u2b05\ufe0f Nazad u postavke", callback_data="cb_settings_main")]
+        ])
+        await query.edit_message_text(msg, reply_markup=keyboard, parse_mode="Markdown")
+
+    elif data == "cb_settings_area":
+        msg = (
+            f"\U0001f4d0 **Postavljanje minimalne kvadrature**\n\n"
+            f"Za postavljanje minimalne stambene površine pošaljite poruku u chatu u formatu:\n"
+            f"`/kvadratura <m2>`\n\n"
+            f"Primjer: `/kvadratura 40`"
+        )
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("\u2b05\ufe0f Nazad u postavke", callback_data="cb_settings_main")]
+        ])
+        await query.edit_message_text(msg, reply_markup=keyboard, parse_mode="Markdown")
+
+    elif data == "cb_settings_reset":
+        reset_user_filters(user.id)
+        msg = (
+            f"\U0001f504 **Filteri su uspješno resetirani!**\n\n"
+            f"Sada ponovno primate obavijesti za sve stanove bez obzira na cijenu, kvadraturu i kvart."
+        )
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("\u2b05\ufe0f Nazad u postavke", callback_data="cb_settings_main")]
+        ])
+        await query.edit_message_text(msg, reply_markup=keyboard, parse_mode="Markdown")
+
 def run_bot_listener():
     scheduler = BackgroundScheduler()
     scheduler.add_job(scheduled_scrape_job, 'interval', minutes=20)
     scheduler.start()
-    logging.info("\U000023F3 Pozadinski raspoređivač (APScheduler) aktivan: scrape-anje zakazano svakih 20 min.")
+    logging.info("\U000023F3 Background scheduler (APScheduler) active: scraping scheduled every 20 minutes.")
 
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
@@ -447,8 +607,10 @@ def run_bot_listener():
     app.add_handler(CommandHandler("moji_kvartovi", my_neighborhoods_command))
 
     app.add_handler(CommandHandler("graf", graph_command))
-
     app.add_handler(CallbackQueryHandler(button_callback_handler))
+
+    app.add_handler(CommandHandler("postavke", settings_command))
+    app.add_handler(CallbackQueryHandler(settings_callback_handler, pattern="^cb_"))
 
     logging.info("\U0001F916 Bot sluša vaše komande u Telegramu...")
     try:
