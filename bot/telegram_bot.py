@@ -38,8 +38,8 @@ from analytics.user_settings import (
     get_user_location_ids,
     toggle_user_neighborhood_by_id,
 )
-
 from analytics.charts import generate_neighborhood_price_chart
+from analytics.feature_extractor import format_feature_badges
 
 logging.basicConfig(level=logging.INFO)
 
@@ -204,10 +204,12 @@ async def latest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for item in listings:
         area = f"{item['area_sqm']} m^2" if item.get("area_sqm") else "Nije navedeno"
+        badges = format_feature_badges(item.get("title", ""), item.get("description", ""))
         text = (
             f"\U0001F31F **{item['title']}**\n\n"
             f"\U0001F4B0 cijena: **{item['price']:.2f} €**\n"
             f"\U0001F4D0 površina: **{area}**\n"
+            f"{badges}"
             f"\U0001F4CB izvor: **{item['source_platform']}**\n"
         )
         keyboard = [[

@@ -2,7 +2,7 @@ import logging
 import requests
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 from database.database import get_connectivity
-
+from analytics.feature_extractor import format_feature_badges
 
 def format_listing_message(listing: dict, event_type: str = "new") -> str:
     if event_type == "price_drop":
@@ -15,6 +15,7 @@ def format_listing_message(listing: dict, event_type: str = "new") -> str:
         emoji_header = "\U0001F195 **Novi oglas u Osijeku** \U0001F195"
 
     area_info = f"{listing['area_sqm']} m²" if listing.get("area_sqm") else "Nije navedeno"
+    badges = format_feature_badges(listing.get("title", ""), listing.get("description", ""))
     platform_name = listing.get("source_platform", "oglasniku")
 
     message = (
@@ -22,6 +23,7 @@ def format_listing_message(listing: dict, event_type: str = "new") -> str:
         f"\U0001F3E2 **{listing['title']}**\n"
         f"\U0001F4B0 **Cijena: {listing['price']:.2f} €**\n"
         f"\U0001F4D0 **Površina/Kvadratura: {area_info}**\n"
+        f"{badges}"
         f"\U0001F517 [Pogledaj oglas na {platform_name}]({listing['url']})"
     )
     return message
