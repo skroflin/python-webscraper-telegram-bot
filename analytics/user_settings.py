@@ -212,11 +212,19 @@ def get_user_location_ids(telegram_id: int) -> set[int]:
         return set()
 
 
-def toggle_user_neighborhood_by_id(telegram_id: int, location_id: int) -> bool:
+def toggle_user_neighborhood_by_id(telegram_id: int, location_id: int, first_name: str = "") -> bool:
     """Turning on or off the neighborhood from the user's list. Returns `True` if added, `False` if removed."""
     try:
         with get_connectivity() as conn:
             cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO users (telegram_id, first_name)
+                VALUES (?, ?)
+                ON CONFLICT(telegram_id) DO UPDATE SET
+                    first_name = CASE WHEN excluded.first_name != '' THEN excluded.first_name ELSE users.first_name END
+            """, (telegram_id, first_name))
+
             cursor.execute(
                 "SELECT 1 FROM user_locations WHERE user_id = ? AND location_id = ?",
                 (telegram_id, location_id)

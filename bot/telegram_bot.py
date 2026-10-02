@@ -1,4 +1,3 @@
-from telegram import _keyboardbuttonpolltype
 import logging
 import sys
 from pathlib import Path
@@ -10,9 +9,11 @@ from telegram.ext import (
     ContextTypes,
     CallbackQueryHandler,
 )
+from telegram.error import BadRequest
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from database.database import init_db
 from config import TELEGRAM_BOT_TOKEN
 from main import run_pipeline
 from analytics.market_stats import (
@@ -46,7 +47,8 @@ logging.basicConfig(level=logging.INFO)
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
         "\U0001F44B **Bok! Ja sam tvoj Osijek Stanovi Bot.** \U0001F916\n\n"
-        "\u2699\ufe0f **Korisnički filteri za obavijesti:**\n"
+        "\u2699\ufe0f **Korisnički filteri i postavke:**\n"
+        "- `/postavke` - interaktivni izbornik za postavke i kvartove \U0001F39B\ufe0f\n"
         "- `/postavi_budzet <cijena>` - postavi max cijenu (npr. `/postavi_budzet 400`)\n"
         "- `/postavi_kvadraturu <m2>` - postavi min površinu (npr. `/postavi_kvadraturu 35`)\n"
         "- `/moj_profil` - pregledaj trenutno aktivne filtere\n"
@@ -109,7 +111,7 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = (
             f"\U0001F464 **Profil: {user.first_name}**\n\n"
             "Trenutno nemate postavljene filtere. Bot vam šalje sve oglase.\n\n"
-            "Postavite filtere naredbama:\n"
+            "Postavite filtere naredbom `/postavke` ili:\n"
             "- `/postavi_budzet <cijena>`\n"
             "- `/postavi_kvadraturu <m2>`"
         )
@@ -120,7 +122,7 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"\U0001F464 **Moje postavke obavijesti ({user.first_name})**\n\n"
             f"\U0001F4B0 Maksimalna cijena: {budget}\n"
             f"\U0001F4D0 Minimalna površina: {area}\n\n"
-            "Promijenite filtere:\n"
+            "Promijenite filtere u `/postavke` ili naredbama:\n"
             "- `/postavi_budzet <cijena>`\n"
             "- `/postavi_kvadraturu <m2>`\n"
             "- `/ponisti_filtere` - Uklanja sve filtere"
@@ -317,8 +319,8 @@ async def neighborhood_listings_command(update: Update, context: ContextTypes.DE
 
         await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
 
+
 async def send_listing_item(update: Update, text: str, item: dict, reply_markup: InlineKeyboardMarkup):
-    """Sending photo message if a image_url exist, in contrast sending plain text."""
     image_url = item.get("image_url")
     if image_url:
         try:
@@ -337,6 +339,7 @@ async def send_listing_item(update: Update, text: str, item: dict, reply_markup:
         parse_mode="Markdown",
         reply_markup=reply_markup
     )
+
 
 async def add_neighborhood_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -389,7 +392,7 @@ async def my_neighborhoods_command(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text(
             "\U0001F4CD **Nemate postavljenih kvartova za filtriranje.**\n"
             "Primate obavijesti za sve dijelove grada Osijeka.\n\n"
-            "Dodajte kvart naredbom: `/dodaj_kvart Retfala`",
+            "Dodajte kvart naredbom: `/dodaj_kvart Retfala` ili u `/postavke`.",
             parse_mode="Markdown"
         )
         return
@@ -400,9 +403,11 @@ async def my_neighborhoods_command(update: Update, context: ContextTypes.DEFAULT
         f"{list_text}\n\n"
         "Upravljanje:\n"
         "- `/dodaj_kvart <naziv>` - dodaj novi kvart\n"
-        "- `/ukloni_kvart <naziv>` - ukloni kvart"
+        "- `/ukloni_kvart <naziv>` - ukloni kvart\n"
+        "- `/postavke` - otvori interaktivne postavke"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
+
 
 def scheduled_scrape_job():
     logging.info("\u23f1\ufe0f Pokretanje automatskog pozadinskog skrepanja...")
@@ -410,6 +415,7 @@ def scheduled_scrape_job():
         run_pipeline(max_pages=3)
     except Exception as e:
         logging.error(f"\u274c Greška pri izvođenju zakazanog skrepanja: {e}")
+
 
 async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\U0001F4CA Generiram grafičku analitiku...")
@@ -421,9 +427,10 @@ async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_photo(
         photo=buf,
-        caption="\U0001F4C8 **Analitika tržišta najma po osječkim kvartovima (€/m^2)**",
+        caption="\U0001F4C8 **Analitika tržišta najma po osječkim kvartovima (EUR / m^2)**",
         parse_mode="Markdown"
     )
+
 
 def build_main_settings_keyboard() -> InlineKeyboardMarkup:
     """Building main settings menu keyboard with inline buttons."""
@@ -470,24 +477,24 @@ def build_neighborhoods_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
         keyboard.append(row)
 
     keyboard.append([
-        InlineKeyboardButton("\u2b05\ufe0f Back to settings", callback_data="cb_settings_main")
+        InlineKeyboardButton("\u2b05\ufe0f Nazad u postavke", callback_data="cb_settings_main")
     ])
 
     return InlineKeyboardMarkup(keyboard)
 
 
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler for /settings command."""
+    """Handler for /postavke command."""
     user = update.effective_user
     profile = get_user_profile(user.id)
 
-    budget_str = f"{profile['max_price']} \u20ac" if profile and profile.get("max_price") else "Not set"
-    area_str = f"{profile['min_area']} m\u00b2" if profile and profile.get("min_area") else "Not set"
+    budget_str = f"{profile['max_price']:.2f} €" if profile and profile.get("max_price") else "Nije postavljen"
+    area_str = f"{profile['min_area']:.1f} m^2" if profile and profile.get("min_area") else "Nije postavljeno"
 
     msg = (
-        f"\u2699\ufe0f **Korisničke postavke i filteri**\n\n"
-        f"\u2022 Trenutni budžet: **{budget_str}**\n"
-        f"\u2022 Min. kvadratura: **{area_str}**\n\n"
+        f"\u2699\ufe0f **Korisnički filteri i postavke**\n\n"
+        f"- Trenutni budžet: **{budget_str}**\n"
+        f"- Min. kvadratura: **{area_str}**\n\n"
         f"Odaberite opciju za prilagodbu:"
     )
 
@@ -503,18 +510,18 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
 
-    user = update.effective_user
+    user = query.from_user
     data = query.data
 
     if data == "cb_settings_main":
         profile = get_user_profile(user.id)
-        budget_str = f"{profile['max_price']} \u20ac" if profile and profile.get("max_price") else "Not set"
-        area_str = f"{profile['min_area']} m\u00b2" if profile and profile.get("min_area") else "Not set"
+        budget_str = f"{profile['max_price']:.2f} €" if profile and profile.get("max_price") else "Nije postavljen"
+        area_str = f"{profile['min_area']:.1f} m^2" if profile and profile.get("min_area") else "Nije postavljeno"
 
         msg = (
-            f"\u2699\ufe0f **Korisničke postavke i filteri**\n\n"
-            f"\u2022 Trenutni budžet: **{budget_str}**\n"
-            f"\u2022 Min. kvadratura: **{area_str}**\n\n"
+            f"\u2699\ufe0f **Korisnički filteri i postavke**\n\n"
+            f"- Trenutni budžet: **{budget_str}**\n"
+            f"- Min. kvadratura: **{area_str}**\n\n"
             f"Odaberite opciju za prilagodbu:"
         )
         await query.edit_message_text(
@@ -524,6 +531,19 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
         )
 
     elif data == "cb_settings_neighborhoods":
+        locations = get_all_locations()
+        if not locations:
+            msg = (
+                f"\U0001f4cd **Odabir kvartova za praćenje**\n\n"
+                f"\u2139\ufe0f U bazi podataka trenutno nema unesenih kvartova u tablici `locations`.\n"
+                f"Pokrenite skrepanje (`main.py`) kako bi se baza napunila kvartovima."
+            )
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("\u2b05\ufe0f Nazad u postavke", callback_data="cb_settings_main")]
+            ])
+            await query.edit_message_text(msg, reply_markup=keyboard, parse_mode="Markdown")
+            return
+
         status_note = (
             "Primate obavijesti samo za **označene kvartove (\u2705)**.\n"
             "Ako nijedan kvart nije označen, primate obavijesti za sve kvartove."
@@ -541,18 +561,24 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
 
     elif data.startswith("cb_toggle_loc_"):
         loc_id = int(data.replace("cb_toggle_loc_", ""))
-        toggle_user_neighborhood_by_id(user.id, loc_id)
+        toggle_user_neighborhood_by_id(user.id, loc_id, user.first_name or "")
 
-        await query.edit_message_reply_markup(
-            reply_markup=build_neighborhoods_keyboard(user.id)
-        )
+        try:
+            await query.edit_message_reply_markup(
+                reply_markup=build_neighborhoods_keyboard(user.id)
+            )
+        except BadRequest as e:
+            if "Message is not modified" in str(e):
+                pass
+            else:
+                raise e
 
     elif data == "cb_settings_budget":
         msg = (
             f"\U0001f4b0 **Postavljanje budžeta**\n\n"
             f"Za postavljanje maksimalnog iznosa najma pošaljite poruku u chatu u formatu:\n"
-            f"`/budzet <iznos>`\n\n"
-            f"Primjer: `/budzet 450`"
+            f"`/postavi_budzet <iznos>`\n\n"
+            f"Primjer: `/postavi_budzet 450`"
         )
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("\u2b05\ufe0f Nazad u postavke", callback_data="cb_settings_main")]
@@ -563,8 +589,8 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
         msg = (
             f"\U0001f4d0 **Postavljanje minimalne kvadrature**\n\n"
             f"Za postavljanje minimalne stambene površine pošaljite poruku u chatu u formatu:\n"
-            f"`/kvadratura <m2>`\n\n"
-            f"Primjer: `/kvadratura 40`"
+            f"`/postavi_kvadraturu <m2>`\n\n"
+            f"Primjer: `/postavi_kvadraturu 40`"
         )
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("\u2b05\ufe0f Nazad u postavke", callback_data="cb_settings_main")]
@@ -582,7 +608,10 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
         ])
         await query.edit_message_text(msg, reply_markup=keyboard, parse_mode="Markdown")
 
+
 def run_bot_listener():
+    init_db()
+
     scheduler = BackgroundScheduler()
     scheduler.add_job(scheduled_scrape_job, 'interval', minutes=20)
     scheduler.start()
@@ -591,6 +620,7 @@ def run_bot_listener():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("postavke", settings_command))
     app.add_handler(CommandHandler("postavi_budzet", set_budget_command))
     app.add_handler(CommandHandler("postavi_kvadraturu", set_area_command))
     app.add_handler(CommandHandler("moj_profil", profile_command))
@@ -605,11 +635,9 @@ def run_bot_listener():
     app.add_handler(CommandHandler("dodaj_kvart", add_neighborhood_command))
     app.add_handler(CommandHandler("ukloni_kvart", remove_neighborhood_command))
     app.add_handler(CommandHandler("moji_kvartovi", my_neighborhoods_command))
-
     app.add_handler(CommandHandler("graf", graph_command))
-    app.add_handler(CallbackQueryHandler(button_callback_handler))
 
-    app.add_handler(CommandHandler("postavke", settings_command))
+    app.add_handler(CallbackQueryHandler(button_callback_handler, pattern="^(save|unsave)_"))
     app.add_handler(CallbackQueryHandler(settings_callback_handler, pattern="^cb_"))
 
     logging.info("\U0001F916 Bot sluša vaše komande u Telegramu...")

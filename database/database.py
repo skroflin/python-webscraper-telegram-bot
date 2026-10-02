@@ -5,22 +5,14 @@ from difflib import SequenceMatcher
 from typing import Dict, Optional, Tuple
 from config import DB_PATH
 
+
 def text_similarity(str1: str, str2: str) -> float:
-    """Calculating percentage of similarity between two texts (0.0 do 1.0)."""
     if not str1 or not str2:
         return 0.0
     return SequenceMatcher(None, str1.lower(), str2.lower()).ratio()
 
+
 def find_cross_post_duplicate(cursor, listing_data: Dict) -> Optional[int]:
-    """
-    Searching if the same apartment is already posted on another platform.
-    Criteria:
-    1. Different platform (e.g. Index vs Njuškalo)
-    2. Price in range of ±5%
-    3. Area in range of ±3 m² (if defined)
-    4. Same neighborhood / location_id (if defined)
-    5. Title similarity >= 75%
-    """
     price = float(listing_data["price"])
     area = listing_data.get("area_sqm")
     title = listing_data["title"]
@@ -49,22 +41,25 @@ def find_cross_post_duplicate(cursor, listing_data: Dict) -> Optional[int]:
         if location_id and cand_loc and location_id != cand_loc:
             continue
 
-        
         sim_score = text_similarity(title, cand["title"])
         if sim_score >= 0.75:
             return cand["id"]
 
     return None
 
+
 def get_connectivity(db_path: str = DB_PATH) -> sqlite3.Connection:
-    """Return connection to SQLite db with enabled foreign keys."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn
 
+
 def init_db(schema_file: str = "database/schema.sql", db_path: str = DB_PATH) -> None:
-    """Initialize db and create tables from .sql script file."""
+    db_dir = os.path.dirname(db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+
     if not os.path.exists(schema_file):
         raise FileNotFoundError(f"SQL script: {schema_file} not found \U0001F625")
 
@@ -72,14 +67,34 @@ def init_db(schema_file: str = "database/schema.sql", db_path: str = DB_PATH) ->
         schema_sql = f.read()
 
     with get_connectivity(db_path) as conn:
+        cursor = conn.cursor()
+        
         conn.executescript(schema_sql)
 
+        try:
+            cursor.execute("ALTER TABLE listings ADD COLUMN image_url TEXT;")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_locations (
+                user_id INTEGER NOT NULL,
+                location_id INTEGER NOT NULL,
+                PRIMARY KEY (user_id, location_id),
+                FOREIGN KEY (user_id) REFERENCES users(telegram_id) ON DELETE CASCADE,
+                FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE
+            );
+        """)
+        conn.commit()
+
+
 def generate_content_hash(title: str, price: float, area_sqm: Optional[float]) -> str:
-    """Generating sha-256 hash for cross-duplicate detection."""
     normalized_title = "".join(title.lower().split())
     area_str = str(round(area_sqm, 1)) if area_sqm else "0"
     raw_data = f"{normalized_title}_{price}_{area_str}"
     return hashlib.sha256(raw_data.encode("utf-8")).hexdigest()
+
 
 def save_or_update_listing(listing_data: Dict, db_path: str = DB_PATH) -> Tuple[str, Optional[int]]:
     url = listing_data["url"]
