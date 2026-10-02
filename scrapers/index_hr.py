@@ -22,6 +22,178 @@ HEADERS = {
     "Referer": "https://www.index.hr/oglasi/najam-stanova/grad-osijek",
 }
 
+# Strict allow-list: only residential apartments for rent.
+# The API can return unrelated classifieds even when category="najam-stanova"
+# is requested, so every item is validated locally before it is parsed/saved.
+APARTMENT_URL_MARKER = "/oglasi/nekretnine/najam-stanova/"
+APARTMENT_CATEGORY_TERMS = (
+    "najam-stanova",
+    "najam stanova",
+    "stanovi za najam",
+    "stan za najam",
+    "stan",
+    "garsonijera",
+)
+APARTMENT_TITLE_PATTERNS = (
+    r"\bstan\w*",
+    r"\bgarsonijer\w*",
+    r"\bjednosob\w*",
+    r"\bdvosob\w*",
+    r"\btrosob\w*",
+    r"\bčetverosob\w*",
+    r"\bcetverosob\w*",
+    r"\bpetosob\w*",
+    r"\bšesterosob\w*",
+    r"\b[1-6]\s*s(?:\s*\+\s*db)?\b",
+)
+RENTAL_TITLE_PATTERNS = (
+    r"\bnajam\w*",
+    r"\biznajm\w*",
+    r"\bizdaje\w*",
+    r"\bmjeseč\w*",
+    r"\bmjesec\w*",
+    r"\bdugoroč\w*",
+    r"\bdugoroc\w*",
+    r"\brent\b",
+)
+VEHICLE_TERMS = (
+    "auto",
+    "automobil",
+    "vozilo",
+    "motor",
+    "motocikl",
+    "motocik",
+    "skuter",
+    "moped",
+    "kombi",
+    "kamion",
+    "prikolica",
+    "quad",
+    "atv",
+    "traktor",
+    "plovilo",
+    "brod",
+    "čamac",
+    "camac",
+    "jahta",
+    "guma",
+    "gume",
+    "felga",
+    "felge",
+    "registracij",
+)
+
+
+def _flatten_for_filter(value) -> str:
+    """Turn nested API metadata into a searchable text string."""
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        return " ".join(_flatten_for_filter(v) for v in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return " ".join(_flatten_for_filter(v) for v in value)
+    return str(value)
+
+
+def is_strict_apartment_rental(item: Optional[Dict], url: Optional[str] = None) -> bool:
+    """
+    Fail-closed filter:
+      1) reject an explicitly non-apartment/category URL;
+      2) if Index metadata contains category information, it must point to
+         residential apartment rentals;
+      3) reject obvious vehicle/non-real-estate listings;
+      4) require a strong apartment signal in title/description.
+    """
+    item = item or {}
+    raw_url = (
+        url
+        or item.get("url")
+        or item.get("link")
+        or item.get("canonicalUrl")
+        or item.get("canonical_url")
+        or ""
+    )
+    url_lower = str(raw_url).lower()
+
+    # If the API gave us a real URL, it must already be in the apartment-rental branch.
+    if raw_url and APARTMENT_URL_MARKER not in url_lower:
+        return False
+
+    category_keys = (
+        "category",
+        "categoryName",
+        "categoryTitle",
+        "categoryPath",
+        "categorySlug",
+        "subcategory",
+        "subcategoryName",
+    )
+    category_text = " ".join(
+        _flatten_for_filter(item.get(key)).lower()
+        for key in category_keys
+        if item.get(key) is not None
+    )
+
+    # When explicit category metadata exists, it must identify apartment rentals.
+    if category_text:
+        if any(term in category_text for term in VEHICLE_TERMS):
+            return False
+
+        if any(
+            term in category_text
+            for term in (
+                "automobili",
+                "motocikli",
+                "vozila",
+                "plovila",
+                "dijelovi",
+                "prijevoz",
+            )
+        ):
+            return False
+
+        # Explicitly non-apartment categories are rejected above. Neutral values
+        # such as "Nekretnine" are allowed; title-level apartment + rental checks
+        # below remain mandatory.
+
+    # Type/section metadata can provide additional negative evidence without
+    # forcing a specific field name, since Index may return generic values such as
+    # "Nekretnine" alongside a more specific subcategory.
+    type_text = " ".join(
+        _flatten_for_filter(item.get(key)).lower()
+        for key in ("type", "typeName", "adType", "section")
+        if item.get(key) is not None
+    )
+    if any(term in type_text for term in VEHICLE_TERMS):
+        return False
+
+    title = _flatten_for_filter(item.get("title")).lower()
+    description = _flatten_for_filter(
+        item.get("description") or item.get("summary") or item.get("text") or ""
+    ).lower()
+    text = f"{title} {description}".strip()
+
+    # Vehicles and vehicle parts are a hard rejection.
+    if any(term in text for term in VEHICLE_TERMS):
+        return False
+
+    # No strong apartment signal => reject.
+    # This is intentionally strict: better to miss an ambiguous ad than save a car/motorcycle.
+    has_apartment_signal = any(
+        re.search(pattern, text, re.IGNORECASE)
+        for pattern in APARTMENT_TITLE_PATTERNS
+    )
+    has_rental_signal = any(
+        re.search(pattern, text, re.IGNORECASE)
+        for pattern in RENTAL_TITLE_PATTERNS
+    )
+
+    # Both conditions are required. "Stan na prodaju" therefore cannot pass,
+    # and a vehicle ad with a stray "stan" word cannot pass either.
+    return has_apartment_signal and has_rental_signal
+
+
+
 
 def parse_price(price_raw) -> float:
     if price_raw is None or price_raw == "":
@@ -81,6 +253,14 @@ def match_location_id(title_and_text: Optional[str]) -> Optional[int]:
 
 
 def parse_api_item(item: Dict) -> Optional[Dict]:
+    # Do not trust the requested API category alone. Validate the raw item first.
+    if not is_strict_apartment_rental(item):
+        logging.info(
+            "Skipping non-apartment/non-rental item from Index API: %s",
+            item.get("title") or item.get("id") or item.get("code"),
+        )
+        return None
+
     smart_link = item.get("smartLink")
     code = item.get("code") or item.get("id")
 
@@ -89,6 +269,10 @@ def parse_api_item(item: Dict) -> Optional[Dict]:
     elif code:
         url = f"{BASE_URL}/nekretnine/najam-stanova/oglas/{code}"
     else:
+        return None
+
+    # Final URL-level guard before anything is returned to the DB layer.
+    if not is_strict_apartment_rental(item, url=url):
         return None
 
     title = (item.get("title") or "Bez naslova").strip()
@@ -190,12 +374,22 @@ def scrape_index_osijek(max_pages: int = 10) -> List[Dict]:
                 logging.info(f"No listings found on page {page}, stopping.")
                 break
 
-            # Post-filter: keep only Osijek listings (the API ignores city filters server-side)
+            # Post-filter 1: keep only Osijek listings
             osijek_items = [i for i in raw_items if i.get("cityId") == OSIJEK_CITY_ID]
-            logging.info(f"Page {page}: {len(raw_items)} total returned, {len(osijek_items)} from Osijek")
+
+            # Post-filter 2: strict apartment-rental allow-list.
+            # This is intentionally applied before parse_api_item so unwanted
+            # categories never reach URL construction or database persistence.
+            apartment_items = [i for i in osijek_items if is_strict_apartment_rental(i)]
+
+            logging.info(
+                f"Page {page}: {len(raw_items)} total returned, "
+                f"{len(osijek_items)} from Osijek, "
+                f"{len(apartment_items)} confirmed apartment rentals"
+            )
 
             page_count = 0
-            for item in osijek_items:
+            for item in apartment_items:
                 parsed = parse_api_item(item)
                 if parsed and parsed["url"] not in seen_urls:
                     seen_urls.add(parsed["url"])
@@ -267,6 +461,9 @@ def extract_from_next_data(soup: BeautifulSoup) -> Tuple[List[Dict], Optional[st
             url = item.get("url") or item.get("link")
             if not url:
                 continue
+
+            if not is_strict_apartment_rental(item, url=url):
+                continue
             if not url.startswith("http"):
                 url = urllib.parse.urljoin(BASE_URL, url)
 
@@ -326,6 +523,9 @@ def extract_from_html(soup: BeautifulSoup) -> List[Dict]:
 
         title_el = card.select_one(".title, .m-card__title, h3, h2, strong")
         title = title_el.get_text(strip=True) if title_el else card.get_text(strip=True)
+
+        if not is_strict_apartment_rental({"title": title}, url=url):
+            continue
 
         if len(title) > 200:
             title = title[:197] + "..."

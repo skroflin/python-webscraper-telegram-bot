@@ -54,7 +54,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- `/kvart <ime kvarta>` - pregled oglasa u kvartu (npr. `/kvart Retfala`)\n"
         "- `/best_buy` - najpovoljniji stanovi po m^2\n"
         "- `/najnovije` - zadnjih 5 stanova iz baze\n"
-        "- `/spremljeno` - vaši omiljeni/spremljeni oglasi \u2B50"
+        "- `/spremljeno` - vaši omiljeni/spremljeni oglasi \u2B50\n"
         "- `/graf` - grafička analiza cijena po kvartovima\n"
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
