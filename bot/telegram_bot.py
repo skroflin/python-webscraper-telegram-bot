@@ -13,6 +13,7 @@ from telegram.error import BadRequest
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from analytics.poi import format_poi_distances
 from database.database import init_db
 from config import TELEGRAM_BOT_TOKEN
 from main import run_pipeline
@@ -281,10 +282,17 @@ async def best_buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\U0001F31F **Top 3 najpovoljnija stana po m^2:**", parse_mode="Markdown")
 
     for item in listings:
+        neighborhood_str = f"\U0001F30D Kvart: **{item['neighborhood']}**\n" if item.get("neighborhood") else ""
+        poi_str = format_poi_distances(item.get("latitude"), item.get("longitude"))
+        badges = format_feature_badges(item.get("title", ""), item.get("description", ""))
+
         text = (
             f"\U0001F31F **{item['title']}**\n\n"
+            f"{neighborhood_str}"
             f"\U0001F4B0 Cijena: **{item['price']:.2f} €** ({item['price_per_sqm']:.2f} €/m^2)\n"
-            f"\U0001F4D0 Površina: **{item['area_sqm']} m^2**\n"
+            f"\U0001F4D0 Površina: **{item['area_sqm']} m^2**\n\n"
+            f"{badges}"
+            f"{poi_str}"
         )
         keyboard = [[
             InlineKeyboardButton("Pogledaj priliku \U0001F517", url=item["url"]),

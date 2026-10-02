@@ -21,21 +21,27 @@ def get_market_analytics() -> Optional[Dict]:
         return None
 
 
-def get_best_buy_listings(limit: int = 3) -> List[Dict]:
+def get_best_buy_listings(limit: int = 3) -> list[dict]:
+    """Dohvaća najpovoljnije stanove po m^2 s prikazom kvarta, adrese i koordinata za POI."""
     try:
         with get_connectivity() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, title, price, area_sqm, (price / area_sqm) as price_per_sqm, url
-                FROM listings
-                WHERE area_sqm IS NOT NULL AND area_sqm > 0 AND price > 0
+                SELECT 
+                    l.id, l.title, l.price, l.area_sqm, l.source_platform, 
+                    l.url, l.image_url, l.description, l.raw_address,
+                    loc.name AS neighborhood, loc.latitude, loc.longitude,
+                    (l.price / l.area_sqm) AS price_per_sqm
+                FROM listings l
+                LEFT JOIN locations loc ON l.location_id = loc.id
+                WHERE l.is_active = 1 AND l.area_sqm IS NOT NULL AND l.area_sqm > 0
                 ORDER BY price_per_sqm ASC
                 LIMIT ?
             """, (limit,))
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
     except Exception as e:
-        logging.error(f"\U0001F506 Error fetching best buy listings: {e}")
+        logging.error(f"Error fetching best buy listings: {e}")
         return []
 
 
