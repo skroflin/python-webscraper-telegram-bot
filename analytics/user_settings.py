@@ -77,7 +77,7 @@ def save_listing(telegram_id: int, first_name: str, listing_id: int) -> bool:
             """, (telegram_id, first_name))
             
             cursor.execute("""
-                INSERT OR IGNORE INTO saved_listings (user_id, listing_id)
+                INSERT OR IGNORE INTO user_saved_listings (user_id, listing_id)
                 VALUES (?, ?)
             """, (telegram_id, listing_id))
             conn.commit()
@@ -87,18 +87,18 @@ def save_listing(telegram_id: int, first_name: str, listing_id: int) -> bool:
         return False
 
 
-def remove_saved_listing(telegram_id: int, listing_id: int) -> bool:
+def remove_saved_listing(user_id: int, listing_id: int) -> bool:
     try:
         with get_connectivity() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                DELETE FROM saved_listings 
+                DELETE FROM user_saved_listings
                 WHERE user_id = ? AND listing_id = ?
-            """, (telegram_id, listing_id))
+            """, (user_id, listing_id))
             conn.commit()
             return True
     except Exception as e:
-        logging.error(f"\u274c Error removing listing {listing_id} for user {telegram_id}: {e}")
+        logging.error(f"\u274c Greška pri uklanjanju oglasa {listing_id} za korisnika {user_id}: {e}")
         return False
 
 
