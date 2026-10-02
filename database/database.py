@@ -126,6 +126,18 @@ def init_db(schema_file: str = "database/schema.sql", db_path: str = DB_PATH) ->
         conn.commit()
 
         cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_saved_listings (
+                user_id INTEGER NOT NULL,
+                listing_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, listing_id),
+                FOREIGN KEY (user_id) REFERENCES users(telegram_id) ON DELETE CASCADE,
+                FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE CASCADE
+            );
+        """)
+        conn.commit()
+
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS pois (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 key_name TEXT UNIQUE NOT NULL,

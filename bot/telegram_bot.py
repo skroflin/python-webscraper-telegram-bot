@@ -41,6 +41,7 @@ from analytics.user_settings import (
 )
 from analytics.charts import generate_neighborhood_price_chart
 from analytics.feature_extractor import format_feature_badges
+from analytics.match_scorer import calculate_match_score, get_match_badge
 
 from scrapers.health_check import run_health_check
 
@@ -159,15 +160,44 @@ async def saved_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\u2139\ufe0f Nemate spremljenih oglasa u omiljenima.", parse_mode="Markdown")
         return
 
-    await update.message.reply_text(f"\u2B50 **Vaši spremljeni oglasi ({len(listings)}):**", parse_mode="Markdown")
+    profile = get_user_profile(user.id)
+    user_loc_ids = get_user_location_ids(user.id)
 
+    scored_listings = []
     for item in listings:
-        area = f"{item['area_sqm']} m^2" if item.get("area_sqm") else "Nije navedeno"
+        score, reasons = calculate_match_score(item, profile, user_loc_ids)
+        item["match_score"] = score
+        item["match_reasons"] = reasons
+        scored_listings.append(item)
+
+    scored_listings.sort(key=lambda x: x["match_score"], reverse=True)
+
+    await update.message.reply_text(
+        f"\u2B50 **Vaši spremljeni oglasi ({len(scored_listings)}), rangirani po vašim preferencijama:**", 
+        parse_mode="Markdown"
+    )
+
+    for item in scored_listings:
+        area = f"{item['area_sqm']} m²" if item.get("area_sqm") else "Nije navedeno"
+        match_str = f"{get_match_badge(item['match_score'])}\n"
+        neighborhood_str = f"\U0001F30D Kvart: **{item['neighborhood']}**\n" if item.get("neighborhood") else ""
+        badges = format_feature_badges(item.get("title", ""), item.get("description", ""))
+        poi_str = format_poi_distances(item.get("latitude"), item.get("longitude"))
+
+        reasons_text = ""
+        if item.get("match_reasons"):
+            reasons_text = "\n\U0001f4a1 **Zašto odgovara:**\n" + "\n".join([f"- {r}" for r in item["match_reasons"][:3]]) + "\n\n"
+
         text = (
             f"\U0001F31F **{item['title']}**\n\n"
-            f"\U0001F4B0 cijena: **{item['price']:.2f} €**\n"
-            f"\U0001F4D0 površina: **{area}**\n"
-            f"\U0001F4CB izvor: **{item['source_platform']}**\n"
+            f"{match_str}"
+            f"{neighborhood_str}"
+            f"\U0001F4B0 Cijena: **{item['price']:.2f} €**\n"
+            f"\U0001F4D0 Površina: **{area}**\n\n"
+            f"{badges}"
+            f"{reasons_text}"
+            f"{poi_str}"
+            f"\U0001F4CB Izvor: **{item['source_platform']}**\n"
         )
         keyboard = [[
             InlineKeyboardButton("Pogledaj oglas \U0001F517", url=item["url"]),
@@ -273,25 +303,45 @@ async def neighborhoods_command(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def best_buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    listings = get_best_buy_listings(limit=3)
+    user = update.effective_user
+    profile = get_user_profile(user.id)
+    user_loc_ids = get_user_location_ids(user.id)
+
+    listings = get_best_buy_listings(limit=5)
 
     if not listings:
-        await update.message.reply_text("\u2139\ufe0f Nema dovoljno podataka o kvadraturama za izračun.")
+        await update.message.reply_text("\u2139\ufe0f Nema dovoljno podataka za izračun.")
         return
 
-    await update.message.reply_text("\U0001F31F **Top 3 najpovoljnija stana po m^2:**", parse_mode="Markdown")
-
+    scored_listings = []
     for item in listings:
+        score, reasons = calculate_match_score(item, profile, user_loc_ids)
+        item["match_score"] = score
+        item["match_reasons"] = reasons
+        scored_listings.append(item)
+
+    scored_listings.sort(key=lambda x: x["match_score"], reverse=True)
+
+    await update.message.reply_text("\U0001F31F **Top prilike prilagođene vašim preferencijama:**", parse_mode="Markdown")
+
+    for item in scored_listings[:3]:
+        match_str = f"{get_match_badge(item['match_score'])}\n"
         neighborhood_str = f"\U0001F30D Kvart: **{item['neighborhood']}**\n" if item.get("neighborhood") else ""
         poi_str = format_poi_distances(item.get("latitude"), item.get("longitude"))
         badges = format_feature_badges(item.get("title", ""), item.get("description", ""))
 
+        reasons_text = ""
+        if item.get("match_reasons"):
+            reasons_text = "\n\U0001f4a1 **Zašto odgovara:**\n" + "\n".join([f"- {r}" for r in item["match_reasons"][:3]]) + "\n\n"
+
         text = (
             f"\U0001F31F **{item['title']}**\n\n"
+            f"{match_str}"
             f"{neighborhood_str}"
-            f"\U0001F4B0 Cijena: **{item['price']:.2f} €**\n"
+            f"\U0001F4B0 Cijena: **{item['price']:.2f} €** ({item['price_per_sqm']:.2f} €/m^2)\n"
             f"\U0001F4D0 Površina: **{item['area_sqm']} m^2**\n\n"
-            f"{badges}\n"
+            f"{badges}"
+            f"{reasons_text}"
             f"{poi_str}"
         )
         keyboard = [[
