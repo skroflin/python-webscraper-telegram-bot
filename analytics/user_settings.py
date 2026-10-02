@@ -107,11 +107,15 @@ def get_saved_listings(telegram_id: int) -> list:
         with get_connectivity() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT l.id, l.title, l.price, l.area_sqm, l.source_platform, l.url
-                FROM listings l
-                JOIN saved_listings sl ON l.id = sl.listing_id
-                WHERE sl.user_id = ?
-                ORDER BY sl.saved_at DESC
+                SELECT 
+                    l.id, l.title, l.price, l.area_sqm, l.source_platform, 
+                    l.url, l.description, l.location_id,
+                    loc.name AS neighborhood, loc.latitude, loc.longitude
+                FROM user_saved_listings usl
+                JOIN listings l ON usl.listing_id = l.id
+                LEFT JOIN locations loc ON l.location_id = loc.id
+                WHERE usl.user_id = ?
+                ORDER BY usl.created_at DESC
             """, (telegram_id,))
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
