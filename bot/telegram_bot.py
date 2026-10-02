@@ -41,8 +41,19 @@ from analytics.user_settings import (
 from analytics.charts import generate_neighborhood_price_chart
 from analytics.feature_extractor import format_feature_badges
 
+from scrapers.health_check import run_health_check
+
 logging.basicConfig(level=logging.INFO)
 
+from scrapers.health_check import run_health_check
+
+def scheduled_health_check_job():
+    logging.info("\U000023F0 Starting automatic daily Health Check of listings...")
+    try:
+        checked, deactivated = run_health_check()
+        logging.info(f"\U0001F9F9 Daily cleanup finished: {deactivated}/{checked} ads marked as inactive.")
+    except Exception as e:
+        logging.error(f"\U0000274C Error running Health Check task: {e}")
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
@@ -616,6 +627,7 @@ def run_bot_listener():
 
     scheduler = BackgroundScheduler()
     scheduler.add_job(scheduled_scrape_job, 'interval', minutes=20)
+    scheduler.add_job(scheduled_health_check_job, 'cron', hour=3, minute=0)
     scheduler.start()
     logging.info("\U000023F3 Background scheduler (APScheduler) active: scraping scheduled every 20 minutes.")
 
