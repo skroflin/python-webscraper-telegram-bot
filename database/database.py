@@ -5,6 +5,9 @@ from difflib import SequenceMatcher
 from typing import Dict, Optional, Tuple
 from config import DB_PATH
 
+import logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
 
 OSIJEK_POI_SEED = [
     {"key_name": "portanova", "name": "TC Portanova", "category": "shopping", "lat": 45.5615, "lon": 18.6280},
@@ -229,3 +232,22 @@ def save_or_update_listing(listing_data: Dict, db_path: str = DB_PATH) -> Tuple[
         ))
         conn.commit()
         return "inserted", cursor.lastrowid
+
+def get_listing_by_id(listing_id: int) -> Optional[Dict]:
+    try:
+        with get_connectivity() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    l.id, l.title, l.description, l.price, l.area_sqm, 
+                    l.source_platform, l.url, l.image_url, l.location_id,
+                    loc.name AS neighborhood, loc.latitude, loc.longitude
+                FROM listings l
+                LEFT JOIN locations loc ON l.location_id = loc.id
+                WHERE l.id = ?
+            """, (listing_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    except Exception as e:
+        logging.error(f"Error fetching listing {listing_id}: {e}")
+        return None

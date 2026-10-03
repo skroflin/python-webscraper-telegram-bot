@@ -6,8 +6,10 @@ import urllib.parse
 import requests
 from typing import List, Dict, Optional
 from bs4 import BeautifulSoup
+from telegram.ext import Application
+from database.database import save_or_update_listing, get_connectivity, get_listing_by_id
 
-from database.database import save_or_update_listing, get_connectivity
+from bot.notifier import notify_users_about_listing
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -223,7 +225,7 @@ def scrape_njuskalo_osijek(max_pages: int = 5) -> List[Dict]:
     return all_listings
 
 
-def run_njuskalo_scraper_and_save(max_pages: int = 5) -> Dict[str, int]:
+async def run_njuskalo_scraper_and_save(max_pages: int = 5, app: Optional[Application] = None) -> Dict[str, int]:
     fetched_listings = scrape_njuskalo_osijek(max_pages=max_pages)
 
     stats = {
@@ -234,13 +236,26 @@ def run_njuskalo_scraper_and_save(max_pages: int = 5) -> Dict[str, int]:
     }
 
     for item in fetched_listings:
-        status, _ = save_or_update_listing(item)
+        status, listing_id = save_or_update_listing(item)
+
         if status in ("inserted", "INSERTED"):
             stats["inserted"] += 1
+            if app and listing_id:
+                full_item = get_listing_by_id(listing_id)
+                if full_item:
+                    await notify_users_about_listing(app, full_item, event_type="inserted")
+
         elif status in ("exists", "EXISTS"):
             stats["exists"] += 1
-        elif status in ("price_updated", "PRICE_UPDATED"):
+
+        elif status in ("price_updated", "PRICE_UPDATED", "price_drop", "price_increased"):
             stats["price_updated"] += 1
+            if app and listing_id and status == "price_drop":
+                full_item = get_listing_by_id(listing_id)
+                if full_item:
+                    full_item["old_price"] = item.get("old_price")
+                    await notify_users_about_listing(app, full_item, event_type="price_drop")
+
         elif status in ("duplicate_cross_post", "DUPLICATE_CROSS_POST"):
             stats["duplicates"] += 1
 

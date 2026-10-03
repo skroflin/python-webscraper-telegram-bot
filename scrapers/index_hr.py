@@ -7,7 +7,9 @@ import requests
 from typing import List, Dict, Optional, Tuple
 from bs4 import BeautifulSoup
 
-from database.database import save_or_update_listing, get_connectivity
+from bot.notifier import notify_users_about_listing
+from telegram.ext import Application
+from database.database import save_or_update_listing, get_connectivity, get_listing_by_id
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -22,9 +24,6 @@ HEADERS = {
     "Referer": "https://www.index.hr/oglasi/najam-stanova/grad-osijek",
 }
 
-# Strict allow-list: only residential apartments for rent.
-# The API can return unrelated classifieds even when category="najam-stanova"
-# is requested, so every item is validated locally before it is parsed/saved.
 APARTMENT_URL_MARKER = "/oglasi/nekretnine/najam-stanova/"
 APARTMENT_CATEGORY_TERMS = (
     "najam-stanova",
@@ -115,7 +114,6 @@ def is_strict_apartment_rental(item: Optional[Dict], url: Optional[str] = None) 
     )
     url_lower = str(raw_url).lower()
 
-    # If the API gave us a real URL, it must already be in the apartment-rental branch.
     if raw_url and APARTMENT_URL_MARKER not in url_lower:
         return False
 
@@ -134,7 +132,6 @@ def is_strict_apartment_rental(item: Optional[Dict], url: Optional[str] = None) 
         if item.get(key) is not None
     )
 
-    # When explicit category metadata exists, it must identify apartment rentals.
     if category_text:
         if any(term in category_text for term in VEHICLE_TERMS):
             return False
@@ -152,13 +149,6 @@ def is_strict_apartment_rental(item: Optional[Dict], url: Optional[str] = None) 
         ):
             return False
 
-        # Explicitly non-apartment categories are rejected above. Neutral values
-        # such as "Nekretnine" are allowed; title-level apartment + rental checks
-        # below remain mandatory.
-
-    # Type/section metadata can provide additional negative evidence without
-    # forcing a specific field name, since Index may return generic values such as
-    # "Nekretnine" alongside a more specific subcategory.
     type_text = " ".join(
         _flatten_for_filter(item.get(key)).lower()
         for key in ("type", "typeName", "adType", "section")
@@ -173,12 +163,9 @@ def is_strict_apartment_rental(item: Optional[Dict], url: Optional[str] = None) 
     ).lower()
     text = f"{title} {description}".strip()
 
-    # Vehicles and vehicle parts are a hard rejection.
     if any(term in text for term in VEHICLE_TERMS):
         return False
 
-    # No strong apartment signal => reject.
-    # This is intentionally strict: better to miss an ambiguous ad than save a car/motorcycle.
     has_apartment_signal = any(
         re.search(pattern, text, re.IGNORECASE)
         for pattern in APARTMENT_TITLE_PATTERNS
@@ -188,11 +175,7 @@ def is_strict_apartment_rental(item: Optional[Dict], url: Optional[str] = None) 
         for pattern in RENTAL_TITLE_PATTERNS
     )
 
-    # Both conditions are required. "Stan na prodaju" therefore cannot pass,
-    # and a vehicle ad with a stray "stan" word cannot pass either.
     return has_apartment_signal and has_rental_signal
-
-
 
 
 def parse_price(price_raw) -> float:
@@ -253,7 +236,6 @@ def match_location_id(title_and_text: Optional[str]) -> Optional[int]:
 
 
 def parse_api_item(item: Dict) -> Optional[Dict]:
-    # Do not trust the requested API category alone. Validate the raw item first.
     if not is_strict_apartment_rental(item):
         logging.info(
             "Skipping non-apartment/non-rental item from Index API: %s",
@@ -322,7 +304,7 @@ def scrape_index_osijek(max_pages: int = 10) -> List[Dict]:
     all_listings = []
     seen_urls = set()
     consecutive_empty_pages = 0
-    EARLY_STOP_AFTER = 3  # stop if this many pages in a row have 0 Osijek items
+    EARLY_STOP_AFTER = 3
 
     session = requests.Session()
     session.headers.update({
@@ -374,12 +356,8 @@ def scrape_index_osijek(max_pages: int = 10) -> List[Dict]:
                 logging.info(f"No listings found on page {page}, stopping.")
                 break
 
-            # Post-filter 1: keep only Osijek listings
             osijek_items = [i for i in raw_items if i.get("cityId") == OSIJEK_CITY_ID]
 
-            # Post-filter 2: strict apartment-rental allow-list.
-            # This is intentionally applied before parse_api_item so unwanted
-            # categories never reach URL construction or database persistence.
             apartment_items = [i for i in osijek_items if is_strict_apartment_rental(i)]
 
             logging.info(
@@ -417,7 +395,7 @@ def scrape_index_osijek(max_pages: int = 10) -> List[Dict]:
 
 
 
-def run_index_scraper_and_save(max_pages: int = 2) -> Dict[str, int]:
+async def run_index_scraper_and_save(max_pages: int = 2, app: Optional[Application] = None) -> Dict[str, int]:
     fetched_listings = scrape_index_osijek(max_pages=max_pages)
 
     stats = {
@@ -428,13 +406,26 @@ def run_index_scraper_and_save(max_pages: int = 2) -> Dict[str, int]:
     }
 
     for item in fetched_listings:
-        status, _ = save_or_update_listing(item)
+        status, listing_id = save_or_update_listing(item)
+
         if status in ("inserted", "INSERTED"):
             stats["inserted"] += 1
+            if app and listing_id:
+                full_item = get_listing_by_id(listing_id)
+                if full_item:
+                    await notify_users_about_listing(app, full_item, event_type="inserted")
+
         elif status in ("exists", "EXISTS"):
             stats["exists"] += 1
-        elif status in ("price_updated", "PRICE_UPDATED"):
+
+        elif status in ("price_updated", "PRICE_UPDATED", "price_drop", "price_increased"):
             stats["price_updated"] += 1
+            if app and listing_id and status == "price_drop":
+                full_item = get_listing_by_id(listing_id)
+                if full_item:
+                    full_item["old_price"] = item.get("old_price")
+                    await notify_users_about_listing(app, full_item, event_type="price_drop")
+
         elif status in ("duplicate_cross_post", "DUPLICATE_CROSS_POST"):
             stats["duplicates"] += 1
 

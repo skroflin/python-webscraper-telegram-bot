@@ -17,7 +17,7 @@ def set_user_budget(telegram_id: int, first_name: str, max_price: float) -> bool
             conn.commit()
             return True
     except Exception as e:
-        logging.error(f"\U0001F506 Error setting budget for user {telegram_id}: {e}")
+        logging.error(f"\U0000274C Error setting budget for user {telegram_id}: {e}")
         return False
 
 
@@ -35,7 +35,7 @@ def set_user_min_area(telegram_id: int, first_name: str, min_area: float) -> boo
             conn.commit()
             return True
     except Exception as e:
-        logging.error(f"\U0001F506 Error setting area for user {telegram_id}: {e}")
+        logging.error(f"\U0000274C Error setting area for user {telegram_id}: {e}")
         return False
 
 
@@ -47,7 +47,7 @@ def get_user_profile(telegram_id: int) -> Optional[Dict]:
             row = cursor.fetchone()
             return dict(row) if row else None
     except Exception as e:
-        logging.error(f"\U0001F506 Error fetching profile for user {telegram_id}: {e}")
+        logging.error(f"\U0000274C Error fetching profile for user {telegram_id}: {e}")
         return None
 
 
@@ -63,7 +63,7 @@ def reset_user_filters(telegram_id: int) -> bool:
             conn.commit()
             return True
     except Exception as e:
-        logging.error(f"\U0001F506 Error resetting filters for user {telegram_id}: {e}")
+        logging.error(f"\U0000274C Error resetting filters for user {telegram_id}: {e}")
         return False
 
 def save_listing(telegram_id: int, first_name: str, listing_id: int) -> bool:
@@ -83,7 +83,7 @@ def save_listing(telegram_id: int, first_name: str, listing_id: int) -> bool:
             conn.commit()
             return True
     except Exception as e:
-        logging.error(f"\u274c Error saving listing {listing_id} for user {telegram_id}: {e}")
+        logging.error(f"\U0000274C Error saving listing {listing_id} for user {telegram_id}: {e}")
         return False
 
 
@@ -98,7 +98,7 @@ def remove_saved_listing(user_id: int, listing_id: int) -> bool:
             conn.commit()
             return True
     except Exception as e:
-        logging.error(f"\u274c Greška pri uklanjanju oglasa {listing_id} za korisnika {user_id}: {e}")
+        logging.error(f"\U0000274C Greška pri uklanjanju oglasa {listing_id} za korisnika {user_id}: {e}")
         return False
 
 
@@ -120,7 +120,7 @@ def get_saved_listings(telegram_id: int) -> list:
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
     except Exception as e:
-        logging.error(f"\u274c Error fetching saved listings for user {telegram_id}: {e}")
+        logging.error(f"\U0000274C Error fetching saved listings for user {telegram_id}: {e}")
         return []
 
 def add_user_neighborhood(telegram_id: int, first_name: str, neighborhood_name: str) -> tuple[bool, str]:
@@ -149,7 +149,7 @@ def add_user_neighborhood(telegram_id: int, first_name: str, neighborhood_name: 
 
             return True, loc["name"]
     except Exception as e:
-        logging.error(f"Error adding neighborhood for user {telegram_id}: {e}")
+        logging.error(f"\U0000274C Error adding neighborhood for user {telegram_id}: {e}")
         return False, "Greška pri upisu u bazu."
 
 
@@ -170,7 +170,7 @@ def remove_user_neighborhood(telegram_id: int, neighborhood_name: str) -> tuple[
                 return True, neighborhood_name
             return False, f"Kvart **'{neighborhood_name}'** nije bio na vašoj listi."
     except Exception as e:
-        logging.error(f"Error removing neighborhood for user {telegram_id}: {e}")
+        logging.error(f"\U0000274C Error removing neighborhood for user {telegram_id}: {e}")
         return False, "Greška pri brisanju iz baze."
 
 
@@ -189,7 +189,7 @@ def get_user_neighborhoods(telegram_id: int) -> list[str]:
             rows = cursor.fetchall()
             return [row["name"] for row in rows]
     except Exception as e:
-        logging.error(f"Error fetching neighborhoods for user {telegram_id}: {e}")
+        logging.error(f"\U0000274C Error fetching neighborhoods for user {telegram_id}: {e}")
         return []
 
 def get_all_locations() -> list[dict]:
@@ -212,7 +212,7 @@ def get_user_location_ids(telegram_id: int) -> set[int]:
             cursor.execute("SELECT location_id FROM user_locations WHERE user_id = ?", (telegram_id,))
             return {row["location_id"] for row in cursor.fetchall()}
     except Exception as e:
-        logging.error(f"Error fetching user location IDs: {e}")
+        logging.error(f"\U0000274C Error fetching user location IDs: {e}")
         return set()
 
 
@@ -250,5 +250,24 @@ def toggle_user_neighborhood_by_id(telegram_id: int, location_id: int, first_nam
                 conn.commit()
                 return True
     except Exception as e:
-        logging.error(f"Error toggling neighborhood id {location_id} for user {telegram_id}: {e}")
+        logging.error(f"\U0000274C Error toggling neighborhood id {location_id} for user {telegram_id}: {e}")
         return False
+
+def get_all_users_with_preferences() -> list:
+    try:
+        with get_connectivity() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT telegram_id, first_name, max_price, min_area FROM users")
+            users = [dict(row) for row in cursor.fetchall()]
+
+            for user in users:
+                cursor.execute(
+                    "SELECT location_id FROM user_locations WHERE user_id = ?", 
+                    (user["telegram_id"],)
+                )
+                user["location_ids"] = [row["location_id"] for row in cursor.fetchall()]
+
+            return users
+    except Exception as e:
+        logging.error(f"\U0000274C Error while fetching users for notifications: {e}")
+        return []
