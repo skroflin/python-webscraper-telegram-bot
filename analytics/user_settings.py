@@ -76,9 +76,15 @@ def reset_user_filters(telegram_id: int) -> bool:
             cursor = conn.cursor()
             cursor.execute("""
                 UPDATE users 
-                SET max_price = NULL, min_area = NULL 
+                SET max_price = NULL,
+                    min_area = NULL,
+                    must_have_lift = 0,
+                    must_have_pet = 0,
+                    must_have_parking = 0,
+                    location_focus = 'none'
                 WHERE telegram_id = ?
             """, (telegram_id,))
+            cursor.execute("DELETE FROM user_locations WHERE user_id = ?", (telegram_id,))
             conn.commit()
             return True
     except Exception as e:
@@ -276,17 +282,25 @@ def get_all_users_with_preferences() -> list:
     try:
         with get_connectivity() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT telegram_id, first_name, max_price, min_area FROM users")
-            users = [dict(row) for row in cursor.fetchall()]
-
-            for user in users:
-                cursor.execute(
-                    "SELECT location_id FROM user_locations WHERE user_id = ?", 
-                    (user["telegram_id"],)
-                )
-                user["location_ids"] = [row["location_id"] for row in cursor.fetchall()]
-
-            return users
+            cursor.execute("""
+                SELECT u.telegram_id, u.first_name, u.max_price, u.min_area,
+                       ul.location_id
+                FROM users u
+                LEFT JOIN user_locations ul ON ul.user_id = u.telegram_id
+                ORDER BY u.telegram_id
+            """)
+            users_by_id = {}
+            for row in cursor.fetchall():
+                user = users_by_id.setdefault(row["telegram_id"], {
+                    "telegram_id": row["telegram_id"],
+                    "first_name": row["first_name"],
+                    "max_price": row["max_price"],
+                    "min_area": row["min_area"],
+                    "location_ids": [],
+                })
+                if row["location_id"] is not None:
+                    user["location_ids"].append(row["location_id"])
+            return list(users_by_id.values())
     except Exception as e:
         logging.error(f"\U0000274C Error while fetching users for notifications: {e}")
         return []

@@ -1,8 +1,9 @@
+import asyncio
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application
 from analytics.match_scorer import calculate_match_score, get_match_badge
-from analytics.poi import format_poi_distances
+from analytics.poi import format_poi_distances, get_all_pois_from_db
 from analytics.feature_extractor import format_feature_badges
 from analytics.user_settings import get_all_users_with_preferences
 
@@ -13,7 +14,10 @@ async def notify_users_about_listing(
     event_type: str = "inserted",
     min_score_threshold: int = 70
 ) -> None:
-    users = get_all_users_with_preferences()
+    users, pois = await asyncio.gather(
+        asyncio.to_thread(get_all_users_with_preferences),
+        asyncio.to_thread(get_all_pois_from_db),
+    )
     if not users:
         return
 
@@ -26,7 +30,7 @@ async def notify_users_about_listing(
         }
         user_loc_ids = user.get("location_ids", [])
 
-        score, reasons = calculate_match_score(listing, user_profile, user_loc_ids)
+        score, reasons = calculate_match_score(listing, user_profile, user_loc_ids, pois)
 
         if score < min_score_threshold:
             continue
@@ -41,7 +45,9 @@ async def notify_users_about_listing(
 
         area_str = f"\U0001F4D0 Površina: **{listing['area_sqm']} m²**\n" if listing.get("area_sqm") else ""
         badges = format_feature_badges(listing.get("title", ""), listing.get("description", ""))
-        poi_str = format_poi_distances(listing.get("latitude"), listing.get("longitude"))
+        poi_str = format_poi_distances(
+            listing.get("latitude"), listing.get("longitude"), pois
+        )
 
         reasons_text = ""
         if reasons:

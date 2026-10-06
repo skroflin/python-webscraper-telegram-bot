@@ -1,7 +1,8 @@
+import asyncio
 import logging
 import sys
 from pathlib import Path
-from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import time as datetime_time
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -23,9 +24,9 @@ from telegram.error import BadRequest
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from analytics.poi import format_poi_distances
+from analytics.poi import format_poi_distances, get_all_pois_from_db
 from database.database import init_db
-from config import TELEGRAM_BOT_TOKEN
+from config import TELEGRAM_BOT_TOKEN, SCRAPE_INTERVAL_MINUTES
 from main import run_pipeline
 from analytics.market_stats import (
     get_market_analytics,
@@ -55,16 +56,12 @@ from analytics.charts import generate_neighborhood_price_chart
 from analytics.feature_extractor import format_feature_badges
 from analytics.match_scorer import calculate_match_score, get_match_badge
 
-from scrapers.health_check import run_health_check
-
 logging.basicConfig(level=logging.INFO)
 
-from scrapers.health_check import run_health_check
-
-def scheduled_health_check_job():
+async def scheduled_health_check_job(context: ContextTypes.DEFAULT_TYPE):
     logging.info("\U000023F0 Starting automatic daily Health Check of listings...")
     try:
-        checked, deactivated = run_health_check()
+        checked, deactivated = await asyncio.to_thread(run_health_check)
         logging.info(f"\U0001F9F9 Daily cleanup finished: {deactivated}/{checked} ads marked as inactive.")
     except Exception as e:
         logging.error(f"\U0000274C Error running Health Check task: {e}")
@@ -175,10 +172,11 @@ async def saved_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     profile = get_user_profile(user.id)
     user_loc_ids = get_user_location_ids(user.id)
+    pois = get_all_pois_from_db()
 
     scored_listings = []
     for item in listings:
-        score, reasons = calculate_match_score(item, profile, user_loc_ids)
+        score, reasons = calculate_match_score(item, profile, user_loc_ids, pois)
         item["match_score"] = score
         item["match_reasons"] = reasons
         scored_listings.append(item)
@@ -195,7 +193,9 @@ async def saved_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         match_str = f"{get_match_badge(item['match_score'])}\n"
         neighborhood_str = f"\U0001F30D Kvart: **{item['neighborhood']}**\n" if item.get("neighborhood") else ""
         badges = format_feature_badges(item.get("title", ""), item.get("description", ""))
-        poi_str = format_poi_distances(item.get("latitude"), item.get("longitude"))
+        poi_str = format_poi_distances(
+            item.get("latitude"), item.get("longitude"), pois
+        )
 
         reasons_text = ""
         if item.get("match_reasons"):
@@ -389,6 +389,7 @@ async def best_buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     profile = get_user_profile(user.id)
     user_loc_ids = get_user_location_ids(user.id)
+    pois = get_all_pois_from_db()
 
     listings = get_best_buy_listings(limit=5)
 
@@ -398,7 +399,7 @@ async def best_buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     scored_listings = []
     for item in listings:
-        score, reasons = calculate_match_score(item, profile, user_loc_ids)
+        score, reasons = calculate_match_score(item, profile, user_loc_ids, pois)
         item["match_score"] = score
         item["match_reasons"] = reasons
         scored_listings.append(item)
@@ -410,7 +411,9 @@ async def best_buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for item in scored_listings[:3]:
         match_str = f"{get_match_badge(item['match_score'])}\n"
         neighborhood_str = f"\U0001F30D Kvart: **{item['neighborhood']}**\n" if item.get("neighborhood") else ""
-        poi_str = format_poi_distances(item.get("latitude"), item.get("longitude"))
+        poi_str = format_poi_distances(
+            item.get("latitude"), item.get("longitude"), pois
+        )
         badges = format_feature_badges(item.get("title", ""), item.get("description", ""))
 
         reasons_text = ""
@@ -563,10 +566,11 @@ async def my_neighborhoods_command(update: Update, context: ContextTypes.DEFAULT
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 
-def scheduled_scrape_job():
+async def scheduled_scrape_job(context: ContextTypes.DEFAULT_TYPE):
     logging.info("\u23f1\ufe0f Pokretanje automatskog pozadinskog skrepanja...")
     try:
-        run_pipeline(max_pages=3)
+        stats = await run_pipeline(app=context.application, max_pages=3)
+        logging.info("Scheduled scrape completed: %s", stats)
     except Exception as e:
         logging.error(f"\u274c Greška pri izvođenju zakazanog skrepanja: {e}")
 
@@ -764,15 +768,30 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
 
 
 def run_bot_listener():
+    if not TELEGRAM_BOT_TOKEN:
+        raise ValueError("TELEGRAM_BOT_TOKEN is required to start the bot.")
+
     init_db()
-
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(scheduled_scrape_job, 'interval', minutes=20)
-    scheduler.add_job(scheduled_health_check_job, 'cron', hour=3, minute=0)
-    scheduler.start()
-    logging.info("\U000023F3 Background scheduler (APScheduler) active: scraping scheduled every 20 minutes.")
-
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    if app.job_queue is None:
+        raise RuntimeError("python-telegram-bot JobQueue is unavailable; install its job-queue extra.")
+
+    app.job_queue.run_repeating(
+        scheduled_scrape_job,
+        interval=SCRAPE_INTERVAL_MINUTES * 60,
+        first=5,
+        name="apartment_scrape",
+        job_kwargs={"max_instances": 1, "coalesce": True},
+    )
+    app.job_queue.run_daily(
+        scheduled_health_check_job,
+        time=datetime_time(hour=3),
+        name="listing_health_check",
+    )
+    logging.info(
+        "\U000023F3 PTB JobQueue active: scraping every %s minutes.",
+        SCRAPE_INTERVAL_MINUTES,
+    )
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("postavke", settings_command))
@@ -798,10 +817,7 @@ def run_bot_listener():
     app.add_handler(MessageHandler(filters.LOCATION, location_message_handler))
 
     logging.info("\U0001F916 Bot sluša vaše komande u Telegramu...")
-    try:
-        app.run_polling()
-    finally:
-        scheduler.shutdown()
+    app.run_polling()
 
 
 if __name__ == "__main__":

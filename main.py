@@ -15,29 +15,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 async def run_pipeline(app: Optional[Application] = None, max_pages: int = 10) -> dict:
     logging.info("\U0001F5E1 Starting scraping operation and notification workflow...")
 
-    init_db()
-
-    index_listings = scrape_index_osijek(max_pages=max_pages)
-    njuskalo_listings = scrape_njuskalo_osijek(max_pages=max_pages)
+    index_listings = await asyncio.to_thread(scrape_index_osijek, max_pages=max_pages)
+    njuskalo_listings = await asyncio.to_thread(scrape_njuskalo_osijek, max_pages=max_pages)
 
     listings = index_listings + njuskalo_listings
 
     stats = {"inserted": 0, "price_drop": 0, "duplicates": 0, "exists": 0}
 
     for item in listings:
-        status, listing_id = save_or_update_listing(item)
+        status, listing_id = await asyncio.to_thread(save_or_update_listing, item)
 
         if status in ("inserted", "INSERTED"):
             stats["inserted"] += 1
             if app and listing_id:
-                full_item = get_listing_by_id(listing_id)
+                full_item = await asyncio.to_thread(get_listing_by_id, listing_id)
                 if full_item:
                     await notify_users_about_listing(app, full_item, event_type="inserted")
 
         elif status in ("price_drop", "PRICE_DROP"):
             stats["price_drop"] += 1
             if app and listing_id:
-                full_item = get_listing_by_id(listing_id)
+                full_item = await asyncio.to_thread(get_listing_by_id, listing_id)
                 if full_item:
                     full_item["old_price"] = item.get("old_price")
                     await notify_users_about_listing(app, full_item, event_type="price_drop")
@@ -59,10 +57,16 @@ async def run_pipeline(app: Optional[Application] = None, max_pages: int = 10) -
 
 
 async def main():
+    if not TELEGRAM_BOT_TOKEN:
+        raise ValueError("TELEGRAM_BOT_TOKEN is required to start the bot.")
+
+    init_db()
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     await app.initialize()
-    await run_pipeline(app=app, max_pages=10)
-    await app.shutdown()
+    try:
+        await run_pipeline(app=app, max_pages=10)
+    finally:
+        await app.shutdown()
 
 
 if __name__ == "__main__":

@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS listings (
 CREATE INDEX IF NOT EXISTS idx_listings_url ON listings(url);
 CREATE INDEX IF NOT EXISTS idx_listings_hash ON listings(content_hash);
 CREATE INDEX IF NOT EXISTS idx_listings_price ON listings(price);
+CREATE INDEX IF NOT EXISTS idx_listings_active_created ON listings(is_active, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_listings_location_active ON listings(location_id, is_active);
 
 CREATE TABLE IF NOT EXISTS price_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -17,4 +17,4 @@ COPY . .
 
 RUN mkdir -p /app/data
 
-CMD ["python", "-m", "notifier.telegram_bot"]
+CMD ["python", "-m", "bot.telegram_bot"]

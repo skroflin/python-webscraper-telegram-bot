@@ -6,7 +6,8 @@ from analytics.poi import get_nearest_pois
 def calculate_match_score(
     listing: dict, 
     user_profile: Optional[dict] = None, 
-    user_location_ids: Optional[List[int]] = None
+    user_location_ids: Optional[List[int]] = None,
+    pois: Optional[List[dict]] = None,
 ) -> Tuple[int, List[str]]:
     score = 0
     reasons = []
@@ -36,8 +37,10 @@ def calculate_match_score(
 
     min_area = user_profile.get("min_area")
     area = listing.get("area_sqm")
-    if min_area and area:
-        if area >= min_area:
+    if min_area:
+        if area is None:
+            reasons.append("\u26a0\ufe0f Kvadratura nije navedena")
+        elif area >= min_area:
             score += 10
             reasons.append(f"\u2705 Odgovara min. površini (\u2265 {min_area:.0f} m\u00b2)")
     else:
@@ -60,8 +63,8 @@ def calculate_match_score(
     score += min(feature_points, 30)
 
     lat, lon = listing.get("latitude"), listing.get("longitude")
-    if lat and lon:
-        nearest = get_nearest_pois(lat, lon, limit_per_category=1)
+    if lat is not None and lon is not None:
+        nearest = get_nearest_pois(lat, lon, limit_per_category=1, pois=pois)
         all_distances = [
             items[0]["distance_km"] 
             for items in nearest.values() 

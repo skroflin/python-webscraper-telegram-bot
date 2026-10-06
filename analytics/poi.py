@@ -25,8 +25,13 @@ def get_all_pois_from_db() -> List[dict]:
         return []
 
 
-def get_nearest_pois(lat: float, lon: float, limit_per_category: int = 1) -> Dict[str, List[dict]]:
-    pois = get_all_pois_from_db()
+def get_nearest_pois(
+    lat: float,
+    lon: float,
+    limit_per_category: int = 1,
+    pois: Optional[List[dict]] = None,
+) -> Dict[str, List[dict]]:
+    pois = get_all_pois_from_db() if pois is None else pois
     categorized: Dict[str, List[dict]] = {}
 
     for info in pois:
@@ -52,11 +57,13 @@ def get_nearest_pois(lat: float, lon: float, limit_per_category: int = 1) -> Dic
     return result
 
 
-def format_poi_distances(lat: Optional[float], lon: Optional[float]) -> str:
-    if not lat or not lon:
+def format_poi_distances(
+    lat: Optional[float], lon: Optional[float], pois: Optional[List[dict]] = None
+) -> str:
+    if lat is None or lon is None:
         return ""
 
-    nearest = get_nearest_pois(lat, lon, limit_per_category=1)
+    nearest = get_nearest_pois(lat, lon, limit_per_category=1, pois=pois)
     lines = []
 
     cat_labels = {

@@ -67,23 +67,7 @@ def match_location_id(title_and_text: Optional[str]) -> Optional[int]:
                 if loc["name"].lower() in text_lower:
                     return loc["id"]
     except Exception:
-        pass
-
-    neighborhood_map = {
-        "centar": 1,
-        "retfala": 2,
-        "sjenjak": 3,
-        "jug2": 4, "jug 2": 4,
-        "donji grad": 5, "dgo": 5,
-        "gornji grad": 6, "ggo": 6,
-        "tvrđa": 7, "tvrda": 7,
-        "industrijska": 8,
-        "novi grad": 9, "ngo": 9
-    }
-
-    for name, loc_id in neighborhood_map.items():
-        if name in text_lower:
-            return loc_id
+        return None
 
     return None
 

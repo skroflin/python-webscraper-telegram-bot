@@ -1,7 +1,7 @@
 import logging
-import math
 from typing import Dict, List, Optional
 from database.database import get_connectivity
+from analytics.poi import calculate_distance_km
 
 
 def get_market_analytics() -> Optional[Dict]:
@@ -14,6 +14,7 @@ def get_market_analytics() -> Optional[Dict]:
                     AVG(price) as avg_price,
                     AVG(price / NULLIF(area_sqm, 0)) as avg_sqm_price
                 FROM listings
+                WHERE is_active = 1
             """)
             stats = cursor.fetchone()
             return dict(stats) if stats else None
@@ -53,6 +54,7 @@ def get_latest_listings(limit: int = 5) -> List[Dict]:
             cursor.execute("""
                 SELECT id, title, price, area_sqm, source_platform, url
                 FROM listings
+                WHERE is_active = 1
                 ORDER BY created_at DESC
                 LIMIT ?
             """, (limit,))
@@ -81,7 +83,7 @@ def get_listings_near_location(latitude: float, longitude: float, radius_km: flo
             listings = []
             for row in cursor.fetchall():
                 item = dict(row)
-                item["distance_km"] = _distance_km(
+                item["distance_km"] = calculate_distance_km(
                     latitude, longitude, item["latitude"], item["longitude"]
                 )
                 if item["distance_km"] <= radius_km:
@@ -92,17 +94,6 @@ def get_listings_near_location(latitude: float, longitude: float, radius_km: flo
         logging.error(f"Error fetching nearby listings: {e}")
         return []
 
-
-def _distance_km(latitude_a: float, longitude_a: float, latitude_b: float, longitude_b: float) -> float:
-    latitude_delta = math.radians(latitude_b - latitude_a)
-    longitude_delta = math.radians(longitude_b - longitude_a)
-    haversine = (
-        math.sin(latitude_delta / 2) ** 2
-        + math.cos(math.radians(latitude_a))
-        * math.cos(math.radians(latitude_b))
-        * math.sin(longitude_delta / 2) ** 2
-    )
-    return 6371 * 2 * math.asin(math.sqrt(haversine))
 
 def get_neighborhood_stats() -> List[Dict]:
     try:
@@ -116,7 +107,7 @@ def get_neighborhood_stats() -> List[Dict]:
                     AVG(l.price / NULLIF(l.area_sqm, 0)) as avg_sqm_price
                 FROM locations loc
                 JOIN listings l ON loc.id = l.location_id
-                WHERE l.price > 0
+                WHERE l.is_active = 1 AND l.price > 0
                 GROUP BY loc.id, loc.name
                 HAVING total_listings > 0
                 ORDER BY avg_price DESC

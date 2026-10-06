@@ -115,25 +115,47 @@ def save_or_update_listing(listing_data: Dict, db_path: str = DB_PATH) -> Tuple[
 
         if existing_url:
             listing_id, old_price = existing_url["id"], existing_url["price"]
-
-            if old_price != price:
-                cursor.execute(
-                    "UPDATE listings SET price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    (price, listing_id)
-                )
+            price_changed = old_price != price
+            if price_changed:
                 cursor.execute(
                     "INSERT INTO price_history (listing_id, old_price, new_price) VALUES (?, ?, ?)",
                     (listing_id, old_price, price)
                 )
-                conn.commit()
 
+            cursor.execute("""
+                UPDATE listings SET
+                    external_id = ?,
+                    source_platform = ?,
+                    title = ?,
+                    description = ?,
+                    price = ?,
+                    area_sqm = ?,
+                    location_id = ?,
+                    raw_address = ?,
+                    image_url = COALESCE(?, image_url),
+                    content_hash = ?,
+                    is_active = 1,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (
+                listing_data.get("external_id"),
+                listing_data["source_platform"],
+                title,
+                listing_data.get("description"),
+                price,
+                area_sqm,
+                listing_data.get("location_id"),
+                listing_data.get("raw_address"),
+                listing_data.get("image_url"),
+                content_hash,
+                listing_id,
+            ))
+            conn.commit()
+
+            if price_changed:
                 listing_data["old_price"] = old_price
                 listing_data["id"] = listing_id
-
-                if price < old_price:
-                    return "price_drop", listing_id
-                else:
-                    return "price_increased", listing_id
+                return ("price_drop" if price < old_price else "price_increased"), listing_id
 
             return "exists", listing_id
 

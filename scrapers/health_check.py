@@ -1,6 +1,7 @@
 import logging
 import requests
-from typing import Tuple
+from concurrent.futures import ThreadPoolExecutor
+from typing import Optional, Tuple
 from config import DB_PATH
 from database.database import get_connectivity
 
@@ -13,21 +14,23 @@ HEADERS = {
 }
 
 
-def check_listing_url_status(url: str, source_platform: str) -> bool:
+def check_listing_url_status(url: str, source_platform: str) -> Optional[bool]:
     """
     Sječe HTTP zahtjev na URL oglasa i provjerava je li oglas još aktivan.
-    Vraća `True` ako je oglas aktivan, `False` ako vrati 404/grešku ili preusmjeri na naslovnicu.
+    Vraća `None` kad HTTP odgovor ne omogućuje pouzdan zaključak.
     """
+    response = None
     try:
         response = requests.head(url, headers=HEADERS, timeout=8, allow_redirects=True)
         if response.status_code in (405, 403):
+            response.close()
             response = requests.get(url, headers=HEADERS, timeout=8, allow_redirects=True, stream=True)
 
         if response.status_code in (404, 410):
             return False
 
         if response.status_code >= 400:
-            return False
+            return None
 
         final_url = response.url.lower()
 
@@ -45,15 +48,21 @@ def check_listing_url_status(url: str, source_platform: str) -> bool:
 
     except requests.RequestException as e:
         logging.warning(f"Health check request failed for {url}: {e}")
-        return True
+        return None
+    finally:
+        if response is not None:
+            response.close()
 
 
-def run_health_check(db_path: str = DB_PATH) -> Tuple[int, int]:
+def run_health_check(db_path: str = DB_PATH, max_workers: int = 8) -> Tuple[int, int]:
     """
     Prolazi kroz sve aktivne oglase i ažurira is_active status u bazi.
     Vraća (`ukupno_provjereno`, `ukupno_deaktivirano`).
     """
     logging.info("\U0001F9F9 Pokrećem Health Check za aktivne oglase...")
+
+    if max_workers < 1:
+        raise ValueError("max_workers must be at least 1")
 
     with get_connectivity(db_path) as conn:
         cursor = conn.cursor()
@@ -64,26 +73,29 @@ def run_health_check(db_path: str = DB_PATH) -> Tuple[int, int]:
             logging.info("\U0001F9F9 Nema aktivnih oglasa za provjeru.")
             return 0, 0
 
-        checked_count = 0
-        deactivated_count = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        statuses = list(executor.map(
+            lambda row: check_listing_url_status(row["url"], row["source_platform"]),
+            active_listings,
+        ))
 
-        for row in active_listings:
-            listing_id = row["id"]
-            url = row["url"]
-            platform = row["source_platform"]
-            title = row["title"]
+    deactivated = [
+        row for row, status in zip(active_listings, statuses)
+        if status is False
+    ]
+    if deactivated:
+        with get_connectivity(db_path) as conn:
+            conn.executemany(
+                "UPDATE listings SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                [(row["id"],) for row in deactivated],
+            )
+            conn.commit()
 
-            is_still_active = check_listing_url_status(url, platform)
-            checked_count += 1
+    for row in deactivated:
+        logging.info("\U0001F44C Deaktiviran oglas #%s: %s (%s)", row["id"], row["title"], row["url"])
 
-            if not is_still_active:
-                cursor.execute(
-                    "UPDATE listings SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    (listing_id,)
-                )
-                conn.commit()
-                deactivated_count += 1
-                logging.info(f"\U0001F44C Deaktiviran oglas #{listing_id}: {title} ({url})")
-
-        logging.info(f"\U0001F504 Health Check završen: provjereno {checked_count}, deaktivirano {deactivated_count} oglasa.")
-        return checked_count, deactivated_count
+    logging.info(
+        "\U0001F504 Health Check završen: provjereno %s, deaktivirano %s oglasa.",
+        len(active_listings), len(deactivated),
+    )
+    return len(active_listings), len(deactivated)

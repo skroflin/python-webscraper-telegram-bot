@@ -1,3 +1,4 @@
+import asyncio
 import json
 import pytest
 from unittest.mock import patch, MagicMock
@@ -11,6 +12,7 @@ from scrapers.index_hr import (
     extract_from_html,
     scrape_index_osijek,
     run_index_scraper_and_save,
+    OSIJEK_CITY_ID,
 )
 
 
@@ -50,9 +52,9 @@ class TestHelperFunctions:
         assert match_location_id("Stan Retfala, trosoban") == 2
 
     @patch("scrapers.index_hr.get_connectivity", side_effect=Exception("Db error"))
-    def test_match_location_id_fallback_map(self, mock_get_conn):
-        assert match_location_id("Stan u GGO-u") == 6
-        assert match_location_id("Stan u DGO-u") == 5
+    def test_match_location_id_returns_none_when_database_unavailable(self, mock_get_conn):
+        assert match_location_id("Stan u GGO-u") is None
+        assert match_location_id("Stan u DGO-u") is None
         assert match_location_id("Nepoznat kvart") is None
 
 
@@ -66,8 +68,8 @@ class TestExtractors:
                         "ads": [
                             {
                                 "id": "12345",
-                                "url": "/oglas/12345",
-                                "title": "Stan RTF 50 m2",
+                                "url": "/oglasi/nekretnine/najam-stanova/oglas/stan-retfala/12345",
+                                "title": "Iznajmljuje se stan u Retfali 50 m2",
                                 "price": "400 EUR",
                                 "description": "Stan u Retfali",
                                 "surfaceArea": "50"
@@ -85,24 +87,28 @@ class TestExtractors:
             
         assert len(results) == 1
         assert results[0]["external_id"] == "12345"
-        assert results[0]["title"] == "Stan RTF 50 m2"
+        assert results[0]["title"] == "Iznajmljuje se stan u Retfali 50 m2"
         assert results[0]["price"] == 400.0
         assert results[0]["location_id"] == 2
 
 
 class TestScraperFlow:
 
-    @patch("scrapers.index_hr.requests.get")
+    @patch("scrapers.index_hr.requests.Session.get")
     @patch("scrapers.index_hr.time.sleep")
     def test_scrape_index_osijek_pagination(self, mock_sleep, mock_requests):
+        mock_response_home = MagicMock()
+        mock_response_home.status_code = 200
+
         mock_response_p1 = MagicMock()
         mock_response_p1.status_code = 200
         mock_response_p1.json.return_value = {
             "data": [
                 {
+                    "cityId": OSIJEK_CITY_ID,
                     "code": "1",
                     "smartLink": "oglas-1",
-                    "title": "Stan 1",
+                    "title": "Iznajmljuje se stan 1",
                     "price": 400,
                     "summary": {"area": 50}
                 }
@@ -115,9 +121,10 @@ class TestScraperFlow:
         mock_response_p2.json.return_value = {
             "data": [
                 {
+                    "cityId": OSIJEK_CITY_ID,
                     "code": "2",
                     "smartLink": "oglas-2",
-                    "title": "Stan 2",
+                    "title": "Iznajmljuje se stan 2",
                     "price": 450,
                     "summary": {"area": 60}
                 }
@@ -125,12 +132,12 @@ class TestScraperFlow:
             "nextPage": None
         }
 
-        mock_requests.side_effect = [mock_response_p1, mock_response_p2]
+        mock_requests.side_effect = [mock_response_home, mock_response_p1, mock_response_p2]
 
         results = scrape_index_osijek(max_pages=2)
 
         assert len(results) == 2
-        assert mock_requests.call_count == 2
+        assert mock_requests.call_count == 3
         assert mock_sleep.call_count == 1
 
     @patch("scrapers.index_hr.scrape_index_osijek")
@@ -150,7 +157,7 @@ class TestScraperFlow:
             ("duplicate_cross_post", 4)
         ]
 
-        stats = run_index_scraper_and_save(max_pages=1)
+        stats = asyncio.run(run_index_scraper_and_save(max_pages=1))
 
         assert stats["inserted"] == 1
         assert stats["exists"] == 1
