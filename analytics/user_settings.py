@@ -271,3 +271,47 @@ def get_all_users_with_preferences() -> list:
     except Exception as e:
         logging.error(f"\U0000274C Error while fetching users for notifications: {e}")
         return []
+
+def get_user_priorities(telegram_id: int) -> dict:
+    try:
+        with get_connectivity() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT must_have_lift, must_have_pet, must_have_parking, location_focus
+                FROM users WHERE telegram_id = ?
+            """, (telegram_id,))
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return {
+                "must_have_lift": 0,
+                "must_have_pet": 0,
+                "must_have_parking": 0,
+                "location_focus": "none"
+            }
+    except Exception as e:
+        logging.error(f"\U0000274C Error while fetching priorities for {telegram_id}: {e}")
+        return {
+            "must_have_lift": 0,
+            "must_have_pet": 0,
+            "must_have_parking": 0,
+            "location_focus": "none"
+        }
+
+
+def update_user_priority(telegram_id: int, key: str, value: any) -> bool:
+    allowed_keys = ["must_have_lift", "must_have_pet", "must_have_parking", "location_focus"]
+    if key not in allowed_keys:
+        return False
+
+    try:
+        with get_connectivity() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"""
+                UPDATE users SET {key} = ? WHERE telegram_id = ?
+            """, (value, telegram_id))
+            conn.commit()
+            return True
+    except Exception as e:
+        logging.error(f"\U0000274C Error while updating priorities {key} for {telegram_id}: {e}")
+        return False

@@ -160,6 +160,19 @@ def init_db(schema_file: str = "database/schema.sql", db_path: str = DB_PATH) ->
             """, OSIJEK_POI_SEED)
             conn.commit()
 
+        for column, col_type in [
+            ("must_have_lift", "INTEGER DEFAULT 0"),
+            ("must_have_pet", "INTEGER DEFAULT 0"),
+            ("must_have_parking", "INTEGER DEFAULT 0"),
+            
+            ("location_focus", "TEXT DEFAULT 'none'")
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE users ADD COLUMN {column} {col_type};")
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
+
 
 def generate_content_hash(title: str, price: float, area_sqm: Optional[float]) -> str:
     normalized_title = "".join(title.lower().split())
