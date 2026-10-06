@@ -1,4 +1,5 @@
 import logging
+import math
 from typing import Dict, List, Optional
 from database.database import get_connectivity
 
@@ -60,6 +61,48 @@ def get_latest_listings(limit: int = 5) -> List[Dict]:
     except Exception as e:
         logging.error(f"\U0001F506 Error fetching latest listings: {e}")
         return []
+
+
+def get_listings_near_location(latitude: float, longitude: float, radius_km: float) -> List[Dict]:
+    try:
+        with get_connectivity() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT
+                    l.id, l.title, l.description, l.price, l.area_sqm,
+                    l.source_platform, l.url, l.image_url, l.location_id,
+                    loc.name AS neighborhood, loc.latitude, loc.longitude
+                FROM listings l
+                JOIN locations loc ON l.location_id = loc.id
+                WHERE l.is_active = 1
+                  AND loc.latitude IS NOT NULL
+                  AND loc.longitude IS NOT NULL
+            """)
+            listings = []
+            for row in cursor.fetchall():
+                item = dict(row)
+                item["distance_km"] = _distance_km(
+                    latitude, longitude, item["latitude"], item["longitude"]
+                )
+                if item["distance_km"] <= radius_km:
+                    listings.append(item)
+
+            return sorted(listings, key=lambda item: item["distance_km"])
+    except Exception as e:
+        logging.error(f"Error fetching nearby listings: {e}")
+        return []
+
+
+def _distance_km(latitude_a: float, longitude_a: float, latitude_b: float, longitude_b: float) -> float:
+    latitude_delta = math.radians(latitude_b - latitude_a)
+    longitude_delta = math.radians(longitude_b - longitude_a)
+    haversine = (
+        math.sin(latitude_delta / 2) ** 2
+        + math.cos(math.radians(latitude_a))
+        * math.cos(math.radians(latitude_b))
+        * math.sin(longitude_delta / 2) ** 2
+    )
+    return 6371 * 2 * math.asin(math.sqrt(haversine))
 
 def get_neighborhood_stats() -> List[Dict]:
     try:

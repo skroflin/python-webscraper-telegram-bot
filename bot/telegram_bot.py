@@ -2,12 +2,22 @@ import logging
 import sys
 from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+)
+from telegram.constants import ChatType
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     ContextTypes,
     CallbackQueryHandler,
+    MessageHandler,
+    filters,
 )
 from telegram.error import BadRequest
 
@@ -21,6 +31,7 @@ from analytics.market_stats import (
     get_market_analytics,
     get_best_buy_listings,
     get_latest_listings,
+    get_listings_near_location,
     get_neighborhood_stats,
     get_listings_by_neighborhood,
 )
@@ -38,6 +49,7 @@ from analytics.user_settings import (
     get_all_locations,
     get_user_location_ids,
     toggle_user_neighborhood_by_id,
+    save_user_location,
 )
 from analytics.charts import generate_neighborhood_price_chart
 from analytics.feature_extractor import format_feature_badges
@@ -72,6 +84,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- `/kvart <ime kvarta>` - pregled oglasa u kvartu (npr. `/kvart Retfala`)\n"
         "- `/best_buy` - najpovoljniji stanovi po m^2\n"
         "- `/najnovije` - zadnjih 5 stanova iz baze\n"
+        "- `/blizu [km]` - pronađi stanove blizu svoje lokacije (zadano 3 km)\n"
         "- `/spremljeno` - vaši omiljeni/spremljeni oglasi \u2B50\n"
         "- `/graf` - grafička analiza cijena po kvartovima\n"
     )
@@ -261,6 +274,76 @@ async def latest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await send_listing_item(update, text, item, reply_markup)
+
+
+async def nearby_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type != ChatType.PRIVATE:
+        await update.message.reply_text("Pretraga lokacije dostupna je u privatnom razgovoru s botom.")
+        return
+
+    radius_km = 3.0
+    if context.args:
+        try:
+            radius_km = float(context.args[0].replace(",", "."))
+            if not 0 < radius_km <= 50:
+                raise ValueError
+        except ValueError:
+            await update.message.reply_text(
+                "Radijus mora biti broj veći od 0 i najviše 50 km. Primjer: `/blizu 2.5`",
+                parse_mode="Markdown",
+            )
+            return
+
+    context.user_data["nearby_radius_km"] = radius_km
+    keyboard = ReplyKeyboardMarkup(
+        [[KeyboardButton("Pošalji trenutnu lokaciju", request_location=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+    await update.message.reply_text(
+        f"Pošaljite svoju lokaciju za pretragu aktivnih oglasa u radijusu {radius_km:g} km. "
+        "Dijeljenjem lokacije sprema se vaša zadnja lokacija u profilu.",
+        reply_markup=keyboard,
+    )
+
+
+async def location_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message
+    location = message.location
+    radius_km = context.user_data.pop("nearby_radius_km", 3.0)
+    user = update.effective_user
+    save_user_location(user.id, user.first_name or "", location.latitude, location.longitude)
+
+    listings = get_listings_near_location(location.latitude, location.longitude, radius_km)
+    await message.reply_text(
+        f"\U0001F4CD Oglasi unutar {radius_km:g} km, rangirani po udaljenosti od centra kvarta:",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    if not listings:
+        await message.reply_text("U tom radijusu nema aktivnih oglasa s poznatom lokacijom.")
+        return
+
+    for item in listings:
+        area = f"{item['area_sqm']} m²" if item.get("area_sqm") else "Nije navedeno"
+        distance = item["distance_km"]
+        distance_text = f"{distance * 1000:.0f} m" if distance < 1 else f"{distance:.1f} km"
+        neighborhood = f"\U0001F30D Kvart: **{item['neighborhood']}**\n" if item.get("neighborhood") else ""
+        text = (
+            f"\U0001F31F **{item['title']}**\n\n"
+            f"\U0001F4CD Od centra kvarta: **{distance_text}**\n"
+            f"{neighborhood}"
+            f"\U0001F4B0 Cijena: **{item['price']:.2f} €**\n"
+            f"\U0001F4D0 Površina: **{area}**\n"
+            f"\U0001F4CB Izvor: **{item['source_platform']}**\n"
+        )
+        buttons = [InlineKeyboardButton("Pogledaj oglas \U0001F517", url=item["url"])]
+        buttons.append(InlineKeyboardButton("\u2B50 Spremi", callback_data=f"save_{item['id']}"))
+        if item.get("latitude") is not None and item.get("longitude") is not None:
+            buttons.append(InlineKeyboardButton(
+                "Karta kvarta \U0001F4CD",
+                url=f"https://www.google.com/maps?q={item['latitude']},{item['longitude']}",
+            ))
+        await send_listing_item(update, text, item, InlineKeyboardMarkup([buttons]))
 
 
 async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -702,6 +785,7 @@ def run_bot_listener():
     app.add_handler(CommandHandler("kvartovi", neighborhoods_command))
     app.add_handler(CommandHandler("best_buy", best_buy_command))
     app.add_handler(CommandHandler("najnovije", latest_command))
+    app.add_handler(CommandHandler("blizu", nearby_command))
     app.add_handler(CommandHandler("kvart", neighborhood_listings_command))
     app.add_handler(CommandHandler("spremljeno", saved_command))
     app.add_handler(CommandHandler("dodaj_kvart", add_neighborhood_command))
@@ -711,6 +795,7 @@ def run_bot_listener():
 
     app.add_handler(CallbackQueryHandler(button_callback_handler, pattern="^(save|unsave)_"))
     app.add_handler(CallbackQueryHandler(settings_callback_handler, pattern="^cb_"))
+    app.add_handler(MessageHandler(filters.LOCATION, location_message_handler))
 
     logging.info("\U0001F916 Bot sluša vaše komande u Telegramu...")
     try:

@@ -51,6 +51,25 @@ def get_user_profile(telegram_id: int) -> Optional[Dict]:
         return None
 
 
+def save_user_location(telegram_id: int, first_name: str, latitude: float, longitude: float) -> bool:
+    try:
+        with get_connectivity() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO users (telegram_id, first_name, last_latitude, last_longitude)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(telegram_id) DO UPDATE SET
+                    first_name = excluded.first_name,
+                    last_latitude = excluded.last_latitude,
+                    last_longitude = excluded.last_longitude
+            """, (telegram_id, first_name, latitude, longitude))
+            conn.commit()
+            return True
+    except Exception as e:
+        logging.error(f"\U0000274C Error saving location for user {telegram_id}: {e}")
+        return False
+
+
 def reset_user_filters(telegram_id: int) -> bool:
     try:
         with get_connectivity() as conn:
