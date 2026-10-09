@@ -39,10 +39,12 @@ def extract_features(title: str = "", description: str = "") -> dict:
 
     return {
         "pet_friendly": pet_friendly,
+        "pet_prohibited": has_pets_negative,
         "parking": parking,
         "balcony": balcony,
         "heating": heating,
-        "elevator": elevator
+        "elevator": elevator,
+        "elevator_negative": has_elevator_negative,
     }
 
 

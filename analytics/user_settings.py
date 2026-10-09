@@ -43,9 +43,18 @@ def get_user_profile(telegram_id: int) -> Optional[Dict]:
     try:
         with get_connectivity() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT max_price, min_area FROM users WHERE telegram_id = ?", (telegram_id,))
+            cursor.execute("""
+                SELECT max_price, min_area, must_have_lift, must_have_pet, must_have_parking, location_focus
+                FROM users WHERE telegram_id = ?
+            """, (telegram_id,))
             row = cursor.fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+            data = dict(row)
+            data["must_have_lift"] = data.get("must_have_lift") or 0
+            data["must_have_pet"] = data.get("must_have_pet") or 0
+            data["must_have_parking"] = data.get("must_have_parking") or 0
+            return data
     except Exception as e:
         logging.error(f"\U0000274C Error fetching profile for user {telegram_id}: {e}")
         return None
@@ -283,23 +292,27 @@ def get_all_users_with_preferences() -> list:
         with get_connectivity() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT u.telegram_id, u.first_name, u.max_price, u.min_area,
-                       ul.location_id
+                SELECT u.*, ul.location_id
                 FROM users u
                 LEFT JOIN user_locations ul ON ul.user_id = u.telegram_id
                 ORDER BY u.telegram_id
             """)
             users_by_id = {}
             for row in cursor.fetchall():
-                user = users_by_id.setdefault(row["telegram_id"], {
-                    "telegram_id": row["telegram_id"],
-                    "first_name": row["first_name"],
-                    "max_price": row["max_price"],
-                    "min_area": row["min_area"],
+                row_dict = dict(row)
+                telegram_id = row_dict["telegram_id"]
+                user = users_by_id.setdefault(telegram_id, {
+                    "telegram_id": telegram_id,
+                    "first_name": row_dict.get("first_name"),
+                    "max_price": row_dict.get("max_price"),
+                    "min_area": row_dict.get("min_area"),
+                    "must_have_lift": row_dict.get("must_have_lift") or 0,
+                    "must_have_pet": row_dict.get("must_have_pet") or 0,
+                    "must_have_parking": row_dict.get("must_have_parking") or 0,
                     "location_ids": [],
                 })
-                if row["location_id"] is not None:
-                    user["location_ids"].append(row["location_id"])
+                if row_dict.get("location_id") is not None:
+                    user["location_ids"].append(row_dict["location_id"])
             return list(users_by_id.values())
     except Exception as e:
         logging.error(f"\U0000274C Error while fetching users for notifications: {e}")
@@ -315,7 +328,13 @@ def get_user_priorities(telegram_id: int) -> dict:
             """, (telegram_id,))
             row = cursor.fetchone()
             if row:
-                return dict(row)
+                res = dict(row)
+                return {
+                    "must_have_lift": res.get("must_have_lift") or 0,
+                    "must_have_pet": res.get("must_have_pet") or 0,
+                    "must_have_parking": res.get("must_have_parking") or 0,
+                    "location_focus": res.get("location_focus") or "none",
+                }
             return {
                 "must_have_lift": 0,
                 "must_have_pet": 0,
@@ -332,7 +351,7 @@ def get_user_priorities(telegram_id: int) -> dict:
         }
 
 
-def update_user_priority(telegram_id: int, key: str, value: any) -> bool:
+def update_user_priority(telegram_id: int, key: str, value: any, first_name: str = "") -> bool:
     allowed_keys = ["must_have_lift", "must_have_pet", "must_have_parking", "location_focus"]
     if key not in allowed_keys:
         return False
@@ -341,10 +360,32 @@ def update_user_priority(telegram_id: int, key: str, value: any) -> bool:
         with get_connectivity() as conn:
             cursor = conn.cursor()
             cursor.execute(f"""
-                UPDATE users SET {key} = ? WHERE telegram_id = ?
-            """, (value, telegram_id))
+                INSERT INTO users (telegram_id, first_name, {key})
+                VALUES (?, ?, ?)
+                ON CONFLICT(telegram_id) DO UPDATE SET
+                    {key} = excluded.{key},
+                    first_name = CASE WHEN excluded.first_name != '' THEN excluded.first_name ELSE users.first_name END
+            """, (telegram_id, first_name, value))
             conn.commit()
             return True
     except Exception as e:
         logging.error(f"\U0000274C Error while updating priorities {key} for {telegram_id}: {e}")
         return False
+
+
+def toggle_user_priority(telegram_id: int, key: str, first_name: str = "") -> Optional[int]:
+    """Toggles boolean priority (must_have_lift, must_have_pet, must_have_parking) and returns new state (0 or 1)."""
+    allowed_keys = ["must_have_lift", "must_have_pet", "must_have_parking"]
+    if key not in allowed_keys:
+        return None
+
+    try:
+        priorities = get_user_priorities(telegram_id)
+        current_val = priorities.get(key, 0) or 0
+        new_val = 0 if current_val == 1 else 1
+        if update_user_priority(telegram_id, key, new_val, first_name):
+            return new_val
+        return None
+    except Exception as e:
+        logging.error(f"\U0000274C Error toggling priority {key} for {telegram_id}: {e}")
+        return None

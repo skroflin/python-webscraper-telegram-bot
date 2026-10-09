@@ -1,10 +1,15 @@
 import asyncio
+import pytest
 from telegram import Bot
 from telegram.error import TelegramError
 from config import TELEGRAM_BOT_TOKEN
 
+@pytest.mark.anyio
 async def test_telegram_connectivity():
     """Testing validity of token and fetching basic bot info."""
+    if not TELEGRAM_BOT_TOKEN or "dummy" in TELEGRAM_BOT_TOKEN.lower():
+        pytest.skip("TELEGRAM_BOT_TOKEN is not configured for live test")
+
     print("\U0001F64F Attempting to connect to Telegram API...")
 
     try:

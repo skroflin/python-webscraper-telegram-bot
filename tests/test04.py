@@ -51,8 +51,8 @@ def test_existing_users_table_migrates_and_saves_location(tmp_path, monkeypatch)
             "CREATE TABLE users (telegram_id INTEGER PRIMARY KEY, first_name TEXT)"
         )
 
-    init_db(str(Path(__file__).parent / "database" / "schema.sql"), str(db_path))
-    init_db(str(Path(__file__).parent / "database" / "schema.sql"), str(db_path))
+    init_db(str(Path(__file__).parent.parent / "database" / "schema.sql"), str(db_path))
+    init_db(str(Path(__file__).parent.parent / "database" / "schema.sql"), str(db_path))
     monkeypatch.setattr(
         "analytics.user_settings.get_connectivity",
         lambda: get_connectivity(str(db_path)),
@@ -207,7 +207,7 @@ def test_health_check_deactivates_only_confirmed_removals(monkeypatch):
 
 def test_existing_listing_refreshes_metadata_and_reactivates(tmp_path):
     db_path = tmp_path / "listing-refresh.sqlite"
-    schema_path = Path(__file__).parent / "database" / "schema.sql"
+    schema_path = Path(__file__).parent.parent / "database" / "schema.sql"
     init_db(str(schema_path), str(db_path))
     listing = {
         "external_id": "abc-1",

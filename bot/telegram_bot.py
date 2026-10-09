@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import time as datetime_time
 from telegram import (
     Update,
+    BotCommand,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -24,6 +25,7 @@ from telegram.error import BadRequest
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from scrapers.health_check import run_health_check
 from analytics.poi import format_poi_distances, get_all_pois_from_db
 from database.database import init_db
 from config import TELEGRAM_BOT_TOKEN, SCRAPE_INTERVAL_MINUTES
@@ -51,6 +53,7 @@ from analytics.user_settings import (
     get_user_location_ids,
     toggle_user_neighborhood_by_id,
     save_user_location,
+    toggle_user_priority,
 )
 from analytics.charts import generate_neighborhood_price_chart
 from analytics.feature_extractor import format_feature_badges
@@ -66,11 +69,43 @@ async def scheduled_health_check_job(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"\U0000274C Error running Health Check task: {e}")
 
+async def setup_bot_metadata(application):
+    try:
+        await application.bot.set_my_description(
+            "\U0001F44B Dobrodošli u Osijek Stanovi Bot! \U0001F3E2\n\n"
+            "Pratim ponudu najma stanova u Osijeku na Njuškalu i Index Oglasniku "
+            "te šaljem trenutne obavijesti o novim oglasima i padovima cijena.\U0001F440\U0001F4B0\n\n"
+            "\u2728 Mogućnosti:\n"
+            "- filtriranje po budžetu, kvadraturi i kvartovima\n"
+            "- preferencije: lift, pet-friendly, parking\n"
+            "- pretraga stanova u vašoj blizini\n"
+            "- analitika i grafički prikaz cijena po kvartovima\n\n"
+            "Pritisnite `/start` za početak! \U0001F680"
+        )
+        await application.bot.set_my_short_description(
+            "Praćenje i trenutne obavijesti za najam stanova u Osijeku."
+        )
+        commands = [
+            BotCommand("start", "Početak i pregled opcija"),
+            BotCommand("postavke", "Filteri i preferencije"),
+            BotCommand("moj_profil", "Pregled aktivnih postavki"),
+            BotCommand("najnovije", "Zadnjih 5 stanova"),
+            BotCommand("best_buy", "Najpovoljniji stanovi po m\u00b2"),
+            BotCommand("blizu", "Stanovi blizu lokacije"),
+            BotCommand("spremljeno", "Spremljeni oglasi"),
+            BotCommand("analitika", "Prosje\u010dne cijene najma"),
+            BotCommand("graf", "Grafi\u010dka analiza kvartova"),
+        ]
+        await application.bot.set_my_commands(commands)
+    except Exception as e:
+        logging.warning(f"Could not update bot metadata: {e}")
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
         "\U0001F44B **Bok! Ja sam tvoj Osijek Stanovi Bot.** \U0001F916\n\n"
         "\u2699\ufe0f **Korisnički filteri i postavke:**\n"
-        "- `/postavke` - interaktivni izbornik za postavke i kvartove \U0001F39B\ufe0f\n"
+        "- `/postavke` - interaktivni izbornik za postavke i kvartove\n"
         "- `/postavi_budzet <cijena>` - postavi max cijenu (npr. `/postavi_budzet 400`)\n"
         "- `/postavi_kvadraturu <m2>` - postavi min površinu (npr. `/postavi_kvadraturu 35`)\n"
         "- `/moj_profil` - pregledaj trenutno aktivne filtere\n"
@@ -85,7 +120,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- `/spremljeno` - vaši omiljeni/spremljeni oglasi \u2B50\n"
         "- `/graf` - grafička analiza cijena po kvartovima\n"
     )
-    await update.message.reply_text(welcome_text, parse_mode="Markdown")
+    keyboard = [
+        [
+            InlineKeyboardButton("\u2699\ufe0f Otvori postavke", callback_data="cb_settings_main"),
+            InlineKeyboardButton("\U0001F4CD Odaberi kvartove", callback_data="cb_settings_neighborhoods"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(welcome_text, parse_mode="Markdown", reply_markup=reply_markup)
 
 
 async def set_budget_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -128,28 +170,30 @@ async def set_area_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    profile = get_user_profile(user.id)
+    profile = await asyncio.to_thread(get_user_profile, user.id)
+    neighborhoods = await asyncio.to_thread(get_user_neighborhoods, user.id)
 
-    if not profile:
-        msg = (
-            f"\U0001F464 **Profil: {user.first_name}**\n\n"
-            "Trenutno nemate postavljene filtere. Bot vam šalje sve oglase.\n\n"
-            "Postavite filtere naredbom `/postavke` ili:\n"
-            "- `/postavi_budzet <cijena>`\n"
-            "- `/postavi_kvadraturu <m2>`"
-        )
-    else:
-        budget = f"**{profile['max_price']:.2f} €**" if profile.get("max_price") else "Nije postavljen (svi oglasi)"
-        area = f"**{profile['min_area']:.1f} m^2**" if profile.get("min_area") else "Nije postavljeno (sve kvadrature)"
-        msg = (
-            f"\U0001F464 **Moje postavke obavijesti ({user.first_name})**\n\n"
-            f"\U0001F4B0 Maksimalna cijena: {budget}\n"
-            f"\U0001F4D0 Minimalna površina: {area}\n\n"
-            "Promijenite filtere u `/postavke` ili naredbama:\n"
-            "- `/postavi_budzet <cijena>`\n"
-            "- `/postavi_kvadraturu <m2>`\n"
-            "- `/ponisti_filtere` - Uklanja sve filtere"
-        )
+    budget = f"**{profile['max_price']:.2f} €**" if profile and profile.get("max_price") else "Nije postavljen (svi oglasi)"
+    area = f"**{profile['min_area']:.1f} m²**" if profile and profile.get("min_area") else "Nije postavljeno (sve kvadrature)"
+    locs = ", ".join(neighborhoods) if neighborhoods else "Svi kvartovi (nema ograničenja)"
+
+    lift = "\U00002705 Da" if profile and profile.get("must_have_lift") else "\U0000274c Isključeno"
+    pet = "\U00002705 Da" if profile and profile.get("must_have_pet") else "\U0000274c Isključeno"
+    parking = "\U00002705 Da" if profile and profile.get("must_have_parking") else "\U0000274c Isključeno"
+
+    msg = (
+        f"\U0001F464 **Moje postavke i filteri ({user.first_name})**\n\n"
+        f"\U0001F4B0 Maksimalna cijena: {budget}\n"
+        f"\U0001F4D0 Minimalna površina: {area}\n"
+        f"\U0001F30D Kvartovi: **{locs}**\n"
+        f"\U0001F6D7 Obavezno lift: {lift}\n"
+        f"\U0001F436 Pet friendly: {pet}\n"
+        f"\U0001F17F\ufe0f Obavezno parking: {parking}\n\n"
+        "Promijenite filtere u interaktivnom izborniku `/postavke` ili naredbama:\n"
+        "- `/postavi_budzet <cijena>`\n"
+        "- `/postavi_kvadraturu <m2>`\n"
+        "- `/ponisti_filtere` - Uklanja sve filtere"
+    )
 
     await update.message.reply_text(msg, parse_mode="Markdown")
 
@@ -164,15 +208,15 @@ async def reset_filters_command(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def saved_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    listings = get_saved_listings(user.id)
+    listings = await asyncio.to_thread(get_saved_listings, user.id)
 
     if not listings:
         await update.message.reply_text("\u2139\ufe0f Nemate spremljenih oglasa u omiljenima.", parse_mode="Markdown")
         return
 
-    profile = get_user_profile(user.id)
-    user_loc_ids = get_user_location_ids(user.id)
-    pois = get_all_pois_from_db()
+    profile = await asyncio.to_thread(get_user_profile, user.id)
+    user_loc_ids = await asyncio.to_thread(get_user_location_ids, user.id)
+    pois = await asyncio.to_thread(get_all_pois_from_db)
 
     scored_listings = []
     for item in listings:
@@ -228,14 +272,14 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
 
     if data.startswith("save_"):
         listing_id = int(data.split("_")[1])
-        if save_listing(user.id, user.first_name, listing_id):
+        if await asyncio.to_thread(save_listing, user.id, user.first_name, listing_id):
             await query.answer("\u2705 Oglas spremljen u omiljene!", show_alert=False)
         else:
             await query.answer("\u274c Greška pri spremanju oglasa.", show_alert=True)
 
     elif data.startswith("unsave_"):
         listing_id = int(data.split("_")[1])
-        if remove_saved_listing(user.id, listing_id):
+        if await asyncio.to_thread(remove_saved_listing, user.id, listing_id):
             await query.answer("\U0001F5D1\ufe0f Oglas uklonjen iz spremljenih!", show_alert=False)
             try:
                 await query.edit_message_text(
@@ -249,7 +293,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def latest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    listings = get_latest_listings(limit=5)
+    listings = await asyncio.to_thread(get_latest_listings, 5)
 
     if not listings:
         await update.message.reply_text("\u2139\ufe0f Trenutno nema unesenih stanova u bazi.")
@@ -312,9 +356,9 @@ async def location_message_handler(update: Update, context: ContextTypes.DEFAULT
     location = message.location
     radius_km = context.user_data.pop("nearby_radius_km", 3.0)
     user = update.effective_user
-    save_user_location(user.id, user.first_name or "", location.latitude, location.longitude)
+    await asyncio.to_thread(save_user_location, user.id, user.first_name or "", location.latitude, location.longitude)
 
-    listings = get_listings_near_location(location.latitude, location.longitude, radius_km)
+    listings = await asyncio.to_thread(get_listings_near_location, location.latitude, location.longitude, radius_km)
     await message.reply_text(
         f"\U0001F4CD Oglasi unutar {radius_km:g} km, rangirani po udaljenosti od centra kvarta:",
         reply_markup=ReplyKeyboardRemove(),
@@ -347,7 +391,7 @@ async def location_message_handler(update: Update, context: ContextTypes.DEFAULT
 
 
 async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    stats = get_market_analytics()
+    stats = await asyncio.to_thread(get_market_analytics)
 
     if not stats or not stats.get("total"):
         await update.message.reply_text("\u2139\ufe0f Baza je prazna ili nema podataka za analitiku.")
@@ -363,7 +407,7 @@ async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def neighborhoods_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    stats = get_neighborhood_stats()
+    stats = await asyncio.to_thread(get_neighborhood_stats)
 
     if not stats:
         await update.message.reply_text("\u2139\ufe0f Trenutno nema oglasa s dodijeljenim kvartovima u bazi.")
@@ -387,11 +431,11 @@ async def neighborhoods_command(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def best_buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    profile = get_user_profile(user.id)
-    user_loc_ids = get_user_location_ids(user.id)
-    pois = get_all_pois_from_db()
+    profile = await asyncio.to_thread(get_user_profile, user.id)
+    user_loc_ids = await asyncio.to_thread(get_user_location_ids, user.id)
+    pois = await asyncio.to_thread(get_all_pois_from_db)
 
-    listings = get_best_buy_listings(limit=5)
+    listings = await asyncio.to_thread(get_best_buy_listings, 5)
 
     if not listings:
         await update.message.reply_text("\u2139\ufe0f Nema dovoljno podataka za izračun.")
@@ -448,7 +492,7 @@ async def neighborhood_listings_command(update: Update, context: ContextTypes.DE
         return
 
     neighborhood_name = " ".join(context.args)
-    listings = get_listings_by_neighborhood(neighborhood_name, limit=5)
+    listings = await asyncio.to_thread(get_listings_by_neighborhood, neighborhood_name, 5)
 
     if not listings:
         await update.message.reply_text(
@@ -508,7 +552,7 @@ async def add_neighborhood_command(update: Update, context: ContextTypes.DEFAULT
         return
 
     neighborhood_name = " ".join(context.args)
-    success, message = add_user_neighborhood(user.id, user.first_name, neighborhood_name)
+    success, message = await asyncio.to_thread(add_user_neighborhood, user.id, user.first_name, neighborhood_name)
 
     if success:
         await update.message.reply_text(
@@ -530,7 +574,7 @@ async def remove_neighborhood_command(update: Update, context: ContextTypes.DEFA
         return
 
     neighborhood_name = " ".join(context.args)
-    success, message = remove_user_neighborhood(user.id, neighborhood_name)
+    success, message = await asyncio.to_thread(remove_user_neighborhood, user.id, neighborhood_name)
 
     if success:
         await update.message.reply_text(
@@ -543,7 +587,7 @@ async def remove_neighborhood_command(update: Update, context: ContextTypes.DEFA
 
 async def my_neighborhoods_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    neighborhoods = get_user_neighborhoods(user.id)
+    neighborhoods = await asyncio.to_thread(get_user_neighborhoods, user.id)
 
     if not neighborhoods:
         await update.message.reply_text(
@@ -578,7 +622,7 @@ async def scheduled_scrape_job(context: ContextTypes.DEFAULT_TYPE):
 async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\U0001F4CA Generiram grafičku analitiku...")
 
-    buf = generate_neighborhood_price_chart()
+    buf = await asyncio.to_thread(generate_neighborhood_price_chart)
     if not buf:
         await update.message.reply_text("\U00002139 Nema dovoljno podataka o kvartovima i m^2 za izradu grafa.")
         return
@@ -590,8 +634,40 @@ async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def build_main_settings_keyboard() -> InlineKeyboardMarkup:
-    """Building main settings menu keyboard with inline buttons."""
+def format_settings_text(telegram_id: int) -> str:
+    profile = get_user_profile(telegram_id) or {}
+    neighborhoods = get_user_neighborhoods(telegram_id)
+
+    budget_str = f"{profile['max_price']:.2f} €" if profile and profile.get("max_price") else "Nije postavljen"
+    area_str = f"{profile['min_area']:.1f} m²" if profile and profile.get("min_area") else "Nije postavljeno"
+    loc_str = ", ".join(neighborhoods) if neighborhoods else "Svi kvartovi (nema ograničenja)"
+
+    lift_str = "\U00002705 Obavezno" if profile.get("must_have_lift") else "\U0000274c Nije obavezno"
+    pet_str = "\U00002705 Obavezno" if profile.get("must_have_pet") else "\U0000274c Nije obavezno"
+    parking_str = "\U00002705 Obavezno" if profile.get("must_have_parking") else "\U0000274c Nije obavezno"
+
+    return (
+        f"\u2699\ufe0f **Korisnički filteri i postavke**\n\n"
+        f"- \U0001f4b0 Maksimalni budžet: **{budget_str}**\n"
+        f"- \U0001f4d0 Minimalna kvadratura: **{area_str}**\n"
+        f"- \U0001f30d Kvartovi: **{loc_str}**\n"
+        f"- \U0001f6d7 Zgrada s liftom: **{lift_str}**\n"
+        f"- \U0001f436 Pet friendly: **{pet_str}**\n"
+        f"- \U0001f17f\ufe0f Parking / garaža: **{parking_str}**\n\n"
+        f"Dodirnite opciju ispod za uključivanje/isključivanje prioriteta ili promjenu filtera:"
+    )
+
+
+def build_main_settings_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
+    profile = get_user_profile(telegram_id) or {}
+    lift_val = profile.get("must_have_lift", 0) == 1
+    pet_val = profile.get("must_have_pet", 0) == 1
+    parking_val = profile.get("must_have_parking", 0) == 1
+
+    lift_btn = f"\U0001f6d7 Lift: {'\U00002705 DA' if lift_val else '\U0000274c NE'}"
+    pet_btn = f"\U0001f436 Ljubimci: {'\U00002705 DA' if pet_val else '\U0000274c NE'}"
+    parking_btn = f"\U0001f17f\ufe0f Parking: {'\U00002705 DA' if parking_val else '\U0000274c NE'}"
+
     keyboard = [
         [
             InlineKeyboardButton("\U0001f4b0 Postavi budžet", callback_data="cb_settings_budget"),
@@ -599,6 +675,13 @@ def build_main_settings_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("\U0001f4cd Moji kvartovi", callback_data="cb_settings_neighborhoods"),
+        ],
+        [
+            InlineKeyboardButton(lift_btn, callback_data="cb_toggle_lift"),
+            InlineKeyboardButton(pet_btn, callback_data="cb_toggle_pet"),
+        ],
+        [
+            InlineKeyboardButton(parking_btn, callback_data="cb_toggle_parking"),
             InlineKeyboardButton("\U0001f504 Resetiraj filtere", callback_data="cb_settings_reset"),
         ],
     ]
@@ -644,21 +727,9 @@ def build_neighborhoods_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for /postavke command."""
     user = update.effective_user
-    profile = get_user_profile(user.id)
-
-    budget_str = f"{profile['max_price']:.2f} €" if profile and profile.get("max_price") else "Nije postavljen"
-    area_str = f"{profile['min_area']:.1f} m^2" if profile and profile.get("min_area") else "Nije postavljeno"
-
-    msg = (
-        f"\u2699\ufe0f **Korisnički filteri i postavke**\n\n"
-        f"- Trenutni budžet: **{budget_str}**\n"
-        f"- Min. kvadratura: **{area_str}**\n\n"
-        f"Odaberite opciju za prilagodbu:"
-    )
-
     await update.message.reply_text(
-        msg,
-        reply_markup=build_main_settings_keyboard(),
+        format_settings_text(user.id),
+        reply_markup=build_main_settings_keyboard(user.id),
         parse_mode="Markdown"
     )
 
@@ -672,21 +743,29 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
     data = query.data
 
     if data == "cb_settings_main":
-        profile = get_user_profile(user.id)
-        budget_str = f"{profile['max_price']:.2f} €" if profile and profile.get("max_price") else "Nije postavljen"
-        area_str = f"{profile['min_area']:.1f} m^2" if profile and profile.get("min_area") else "Nije postavljeno"
-
-        msg = (
-            f"\u2699\ufe0f **Korisnički filteri i postavke**\n\n"
-            f"- Trenutni budžet: **{budget_str}**\n"
-            f"- Min. kvadratura: **{area_str}**\n\n"
-            f"Odaberite opciju za prilagodbu:"
-        )
         await query.edit_message_text(
-            msg,
-            reply_markup=build_main_settings_keyboard(),
+            format_settings_text(user.id),
+            reply_markup=build_main_settings_keyboard(user.id),
             parse_mode="Markdown"
         )
+
+    elif data in ("cb_toggle_lift", "cb_toggle_pet", "cb_toggle_parking"):
+        key_map = {
+            "cb_toggle_lift": "must_have_lift",
+            "cb_toggle_pet": "must_have_pet",
+            "cb_toggle_parking": "must_have_parking",
+        }
+        key = key_map[data]
+        toggle_user_priority(user.id, key, user.first_name or "")
+        try:
+            await query.edit_message_text(
+                format_settings_text(user.id),
+                reply_markup=build_main_settings_keyboard(user.id),
+                parse_mode="Markdown"
+            )
+        except BadRequest as e:
+            if "Message is not modified" not in str(e):
+                raise e
 
     elif data == "cb_settings_neighborhoods":
         locations = get_all_locations()
@@ -726,9 +805,7 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
                 reply_markup=build_neighborhoods_keyboard(user.id)
             )
         except BadRequest as e:
-            if "Message is not modified" in str(e):
-                pass
-            else:
+            if "Message is not modified" not in str(e):
                 raise e
 
     elif data == "cb_settings_budget":
@@ -757,14 +834,15 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
 
     elif data == "cb_settings_reset":
         reset_user_filters(user.id)
-        msg = (
-            f"\U0001f504 **Filteri su uspješno resetirani!**\n\n"
-            f"Sada ponovno primate obavijesti za sve stanove bez obzira na cijenu, kvadraturu i kvart."
-        )
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("\u2b05\ufe0f Nazad u postavke", callback_data="cb_settings_main")]
-        ])
-        await query.edit_message_text(msg, reply_markup=keyboard, parse_mode="Markdown")
+        try:
+            await query.edit_message_text(
+                format_settings_text(user.id),
+                reply_markup=build_main_settings_keyboard(user.id),
+                parse_mode="Markdown"
+            )
+        except BadRequest as e:
+            if "Message is not modified" not in str(e):
+                raise e
 
 
 def run_bot_listener():
@@ -772,7 +850,12 @@ def run_bot_listener():
         raise ValueError("TELEGRAM_BOT_TOKEN is required to start the bot.")
 
     init_db()
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    app = (
+        ApplicationBuilder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .post_init(setup_bot_metadata)
+        .build()
+    )
     if app.job_queue is None:
         raise RuntimeError("python-telegram-bot JobQueue is unavailable; install its job-queue extra.")
 

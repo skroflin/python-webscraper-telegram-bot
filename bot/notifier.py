@@ -26,9 +26,19 @@ async def notify_users_about_listing(
     for user in users:
         user_profile = {
             "max_price": user.get("max_price"),
-            "min_area": user.get("min_area")
+            "min_area": user.get("min_area"),
+            "must_have_lift": user.get("must_have_lift", 0),
+            "must_have_pet": user.get("must_have_pet", 0),
+            "must_have_parking": user.get("must_have_parking", 0),
         }
         user_loc_ids = user.get("location_ids", [])
+
+        from analytics.feature_extractor import extract_features
+        features = extract_features(listing.get("title", ""), listing.get("description", ""))
+        if user_profile["must_have_pet"] and features.get("pet_prohibited"):
+            continue
+        if user_profile["must_have_lift"] and features.get("elevator_negative"):
+            continue
 
         score, reasons = calculate_match_score(listing, user_profile, user_loc_ids, pois)
 
