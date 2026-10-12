@@ -134,7 +134,7 @@ def save_or_update_listing(listing_data: Dict, db_path: str = DB_PATH) -> Tuple[
                     raw_address = ?,
                     image_url = COALESCE(?, image_url),
                     content_hash = ?,
-                    is_active = 1,
+                    is_active = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             """, (
@@ -148,6 +148,7 @@ def save_or_update_listing(listing_data: Dict, db_path: str = DB_PATH) -> Tuple[
                 listing_data.get("raw_address"),
                 listing_data.get("image_url"),
                 content_hash,
+                listing_data.get("is_active", 1),
                 listing_id,
             ))
             conn.commit()
@@ -166,8 +167,8 @@ def save_or_update_listing(listing_data: Dict, db_path: str = DB_PATH) -> Tuple[
         sql_insert = """
             INSERT INTO listings (
                 external_id, source_platform, title, description, price,
-                area_sqm, location_id, raw_address, url, image_url, content_hash
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                area_sqm, location_id, raw_address, url, image_url, content_hash, is_active
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
         cursor.execute(sql_insert, (
@@ -181,7 +182,8 @@ def save_or_update_listing(listing_data: Dict, db_path: str = DB_PATH) -> Tuple[
             listing_data.get("raw_address"),
             url,
             listing_data.get("image_url"),
-            content_hash
+            content_hash,
+            listing_data.get("is_active", 1),
         ))
         conn.commit()
         return "inserted", cursor.lastrowid

@@ -93,8 +93,8 @@ async def setup_bot_metadata(application):
             BotCommand("best_buy", "Najpovoljniji stanovi po m\u00b2"),
             BotCommand("blizu", "Stanovi blizu lokacije"),
             BotCommand("spremljeno", "Spremljeni oglasi"),
-            BotCommand("analitika", "Prosje\u010dne cijene najma"),
-            BotCommand("graf", "Grafi\u010dka analiza kvartova"),
+            BotCommand("analitika", "Prosječne cijene najma"),
+            BotCommand("graf", "Grafička analiza kvartova"),
         ]
         await application.bot.set_my_commands(commands)
     except Exception as e:

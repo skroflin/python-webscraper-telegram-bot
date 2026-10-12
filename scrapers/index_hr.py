@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from bot.notifier import notify_users_about_listing
 from telegram.ext import Application
 from database.database import save_or_update_listing, get_connectivity, get_listing_by_id
+from scrapers.health_check import is_listing_text_inactive
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -241,7 +242,14 @@ def parse_api_item(item: Dict) -> Optional[Dict]:
     if not is_strict_apartment_rental(item, url=url):
         return None
 
+    status = item.get("status")
+    if status is not None and status != 1:
+        return None
+
     title = (item.get("title") or "Bez naslova").strip()
+    if is_listing_text_inactive(title):
+        return None
+
     price = parse_price(item.get("price"))
 
     if price == 0:
@@ -443,11 +451,14 @@ def extract_from_next_data(soup: BeautifulSoup) -> Tuple[List[Dict], Optional[st
                 url = urllib.parse.urljoin(BASE_URL, url)
 
             title = item.get("title") or "Bez naslova"
+            desc = item.get("description") or ""
+            if is_listing_text_inactive(title) or is_listing_text_inactive(desc):
+                continue
+
             price = parse_price(item.get("price") or item.get("priceEur"))
             if price == 0:
                 continue
 
-            desc = item.get("description") or ""
             area_sqm = item.get("surfaceArea") or parse_area(title)
 
             listings.append({
@@ -496,8 +507,14 @@ def extract_from_html(soup: BeautifulSoup) -> List[Dict]:
 
         seen_urls_in_page.add(url)
 
+        if card.select(".badge-sold, .badge-inactive, [class*='sold'], [class*='inactive'], [class*='unavailable']"):
+            continue
+
         title_el = card.select_one(".title, .m-card__title, h3, h2, strong")
         title = title_el.get_text(strip=True) if title_el else card.get_text(strip=True)
+
+        if is_listing_text_inactive(title):
+            continue
 
         if not is_strict_apartment_rental({"title": title}, url=url):
             continue

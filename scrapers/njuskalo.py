@@ -8,6 +8,7 @@ from typing import List, Dict, Optional
 from bs4 import BeautifulSoup
 from telegram.ext import Application
 from database.database import save_or_update_listing, get_connectivity, get_listing_by_id
+from scrapers.health_check import is_listing_text_inactive
 
 from bot.notifier import notify_users_about_listing
 
@@ -88,10 +89,18 @@ def parse_njuskalo_card(card: BeautifulSoup) -> Optional[Dict]:
     if raw_url.startswith("#") or "javascript" in raw_url:
         return None
 
+    if "/nekretnine/" not in raw_url and "/iznajmljivanje-stanova/" not in raw_url:
+        return None
+
+    if card.select(".ClassifiedDetailUnavailableNotice, [class*='UnavailableNotice'], .entity-status--sold, .entity-tag--inactive, .badge-inactive, .is-sold, .is-inactive"):
+        return None
+
     url = urllib.parse.urljoin(BASE_URL, raw_url)
     title = title_el.get_text(strip=True)
+    if is_listing_text_inactive(title):
+        return None
 
-    price_el = card.select_one(".price--eur, .price-items, .entity-prices, .price")
+    price_el = card.select_one(".price--eur, .price-items, .entity-prices, .price, [class*='price']")
     price_text = price_el.get_text(strip=True) if price_el else ""
     price = parse_price(price_text)
 
@@ -100,6 +109,8 @@ def parse_njuskalo_card(card: BeautifulSoup) -> Optional[Dict]:
 
     description_el = card.select_one(".entity-description, .entity-subtitle, .entity-body")
     description = description_el.get_text(strip=True) if description_el else ""
+    if is_listing_text_inactive(description):
+        return None
 
     location_el = card.select_one(".entity-description-main, .entity-location")
     location_text = location_el.get_text(strip=True) if location_el else ""
@@ -168,10 +179,12 @@ def scrape_njuskalo_osijek(max_pages: int = 5) -> List[Dict]:
                 break
 
             soup = BeautifulSoup(response.text, "html.parser")
-            cards = soup.select(".EntityList--ListItemRegular .EntityList-item, .EntityList--cards .EntityList-item, article.EntityList-item")
-
+            cards = [
+                a for a in soup.find_all("article")
+                if a.find("a", href=lambda h: h and "oglas-" in h and ("/nekretnine/" in h or "/iznajmljivanje-stanova/" in h))
+            ]
             if not cards:
-                cards = soup.select("li.EntityList-item")
+                cards = soup.select(".EntityList--ListItemRegular .EntityList-item, .EntityList--cards .EntityList-item, article.EntityList-item, li.EntityList-item")
 
             if not cards:
                 logging.info(f"No listing elements found on page {page}.")
