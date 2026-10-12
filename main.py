@@ -7,6 +7,7 @@ from config import TELEGRAM_BOT_TOKEN
 from database.database import save_or_update_listing, get_listing_by_id, init_db
 from scrapers.index_hr import scrape_index_osijek
 from scrapers.njuskalo import scrape_njuskalo_osijek
+from scrapers.facebook import scrape_facebook_osijek
 from bot.notifier import notify_users_about_listing
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -17,8 +18,9 @@ async def run_pipeline(app: Optional[Application] = None, max_pages: int = 10) -
 
     index_listings = await asyncio.to_thread(scrape_index_osijek, max_pages=max_pages)
     njuskalo_listings = await asyncio.to_thread(scrape_njuskalo_osijek, max_pages=max_pages)
-
-    listings = index_listings + njuskalo_listings
+    facebook_listings = await scrape_facebook_osijek(max_scrolls=5)
+    
+    listings = index_listings + njuskalo_listings + facebook_listings
 
     stats = {"inserted": 0, "price_drop": 0, "duplicates": 0, "exists": 0}
 
