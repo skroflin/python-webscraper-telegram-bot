@@ -5,3 +5,4 @@ __pycache__/
 .DS_Store
 example-data/
 debug_api.py
+facebook_state.json
