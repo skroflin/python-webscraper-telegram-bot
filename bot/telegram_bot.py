@@ -614,7 +614,7 @@ async def scheduled_scrape_job(context: ContextTypes.DEFAULT_TYPE):
     logging.info("\u23f1\ufe0f Pokretanje automatskog pozadinskog skrepanja...")
     try:
         stats = await run_pipeline(app=context.application, max_pages=3)
-        logging.info("Scheduled scrape completed: %s", stats)
+        logging.info("\U000023F2 Scheduled scrape completed: %s", stats)
     except Exception as e:
         logging.error(f"\u274c Greška pri izvođenju zakazanog skrepanja: {e}")
 
