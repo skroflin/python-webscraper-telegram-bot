@@ -305,7 +305,7 @@ def scrape_index_osijek(max_pages: int = 10) -> List[Dict]:
     })
 
     try:
-        logging.info("Acquiring session cookies from Index.hr...")
+        logging.info("\U0001F36A Acquiring session cookies from Index.hr...")
         page_resp = session.get(
             "https://www.index.hr/oglasi/nekretnine/najam-stanova/osijek/pretraga",
             headers={"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
@@ -319,7 +319,7 @@ def scrape_index_osijek(max_pages: int = 10) -> List[Dict]:
     api_headers = {**HEADERS, "X-Requested-With": "XMLHttpRequest"}
 
     for page in range(1, max_pages + 1):
-        logging.info(f"Scraping Index Oglasnik API (page {page}/{max_pages})... \U0001f5e1")
+        logging.info(f"\U0001F534 Scraping Index Oglasnik API (page {page}/{max_pages})... \U0001f5e1")
 
         search_query = {
             "category": "najam-stanova",
@@ -353,7 +353,7 @@ def scrape_index_osijek(max_pages: int = 10) -> List[Dict]:
             apartment_items = [i for i in osijek_items if is_strict_apartment_rental(i)]
 
             logging.info(
-                f"Page {page}: {len(raw_items)} total returned, "
+                f"\U0001F4C4 Page {page}: {len(raw_items)} total returned, "
                 f"{len(osijek_items)} from Osijek, "
                 f"{len(apartment_items)} confirmed apartment rentals"
             )

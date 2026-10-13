@@ -151,7 +151,7 @@ def scrape_njuskalo_osijek(max_pages: int = 5) -> List[Dict]:
     session.headers.update(HEADERS)
 
     try:
-        logging.info("Acquiring session cookies from Njuškalo homepage...")
+        logging.info("\U0001F36A Acquiring session cookies from Njuškalo homepage...")
         home_resp = session.get(BASE_URL, timeout=12)
         if home_resp.status_code != 200:
             logging.warning(f"Homepage returned status {home_resp.status_code}, proceeding anyway.")
@@ -159,7 +159,7 @@ def scrape_njuskalo_osijek(max_pages: int = 5) -> List[Dict]:
         logging.warning(f"Could not pre-fetch homepage cookies: {e}, proceeding anyway.")
 
     for page in range(1, max_pages + 1):
-        logging.info(f"Scraping Njuškalo (page {page}/{max_pages})... \U0001f5e1")
+        logging.info(f"\U0001F436 Scraping Njuškalo (page {page}/{max_pages})... \U0001f5e1")
 
         page_url = f"{OSIJEK_URL}?page={page}"
         page_headers = {

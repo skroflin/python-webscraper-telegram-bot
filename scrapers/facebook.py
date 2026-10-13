@@ -576,7 +576,7 @@ async def scrape_facebook_osijek(
     seen_urls: Set[str] = set()
 
     logging.info(
-        "Starting Facebook scraping: Marketplace + %d groups",
+        "\U0001F535 Starting Facebook scraping: Marketplace + %d groups",
         len(FACEBOOK_GROUP_URLS),
     )
 
@@ -634,7 +634,7 @@ async def scrape_facebook_osijek(
             await browser.close()
 
     logging.info(
-        "Facebook scraping finished: %d unique listings extracted",
+        "\U0001F535 Facebook scraping finished: %d unique listings extracted",
         len(listings),
     )
 
@@ -727,5 +727,5 @@ async def run_facebook_scraper_and_save(
                 item.get("url"),
             )
 
-    logging.info("Facebook save statistics: %s", stats)
+    logging.info("\U0001F535 Facebook save statistics: %s", stats)
     return stats
