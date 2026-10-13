@@ -115,7 +115,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- `/kvartovi` - pregled cijena po osječkim kvartovima\n"
         "- `/kvart <ime kvarta>` - pregled oglasa u kvartu (npr. `/kvart Retfala`)\n"
         "- `/best_buy` - najpovoljniji stanovi po m^2\n"
-        "- `/najnovije` - zadnjih 5 stanova iz baze\n"
+        "- `/najnovije` - zadnjih 10 stanova iz baze\n"
         "- `/blizu [km]` - pronađi stanove blizu svoje lokacije (zadano 3 km)\n"
         "- `/spremljeno` - vaši omiljeni/spremljeni oglasi \u2B50\n"
         "- `/graf` - grafička analiza cijena po kvartovima\n"
@@ -293,7 +293,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def latest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    listings = await asyncio.to_thread(get_latest_listings, 5)
+    listings = await asyncio.to_thread(get_latest_listings, 10)
 
     if not listings:
         await update.message.reply_text("\u2139\ufe0f Trenutno nema unesenih stanova u bazi.")
