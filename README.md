@@ -29,14 +29,12 @@ stanovi-osijek-bot/
 ├─ scrapers/
 │   ├─ __init__.py
 │   ├─ facebook.py          # Facebook Marketplace & Group scraper
-│   ├─ njuskalo.py          # Njuskalo scraper (not shown)
+│   └─ njuskalo.py          # Njuskalo scraper (not shown)
 │   └─ index_hr.py          # Additional scraper (not shown)
 ├─ analytics/
 │   └─ analytics.py         # Data analysis utilities
 ├─ data/                    # Optional folder for static data files
-├─ tests/                   # Unit and integration tests
-└─ scripts/
-    └─ generate_fb_state.py # Script to generate Playwright storage state
+└─ tests/                   # Unit and integration tests
 ```
 
 ## Environment Configuration (`.env`)
