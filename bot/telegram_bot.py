@@ -771,9 +771,9 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
         locations = get_all_locations()
         if not locations:
             msg = (
-                f"\U0001f4cd **Odabir kvartova za praćenje**\n\n"
-                f"\u2139\ufe0f U bazi podataka trenutno nema unesenih kvartova u tablici `locations`.\n"
-                f"Pokrenite skrepanje (`main.py`) kako bi se baza napunila kvartovima."
+                "\U0001f4cd **Odabir kvartova za praćenje**\n\n"
+                "\u2139\ufe0f U bazi podataka trenutno nema unesenih kvartova u tablici `locations`.\n"
+                "Pokrenite skrepanje (`main.py`) kako bi se baza napunila kvartovima."
             )
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("\u2b05\ufe0f Nazad u postavke", callback_data="cb_settings_main")]
@@ -810,10 +810,10 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
 
     elif data == "cb_settings_budget":
         msg = (
-            f"\U0001f4b0 **Postavljanje budžeta**\n\n"
-            f"Za postavljanje maksimalnog iznosa najma pošaljite poruku u chatu u formatu:\n"
-            f"`/postavi_budzet <iznos>`\n\n"
-            f"Primjer: `/postavi_budzet 450`"
+            "\U0001f4b0 **Postavljanje budžeta**\n\n"
+            "Za postavljanje maksimalnog iznosa najma pošaljite poruku u chatu u formatu:\n"
+            "`/postavi_budzet <iznos>`\n\n"
+            "Primjer: `/postavi_budzet 450`"
         )
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("\u2b05\ufe0f Nazad u postavke", callback_data="cb_settings_main")]
@@ -822,10 +822,10 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
 
     elif data == "cb_settings_area":
         msg = (
-            f"\U0001f4d0 **Postavljanje minimalne kvadrature**\n\n"
-            f"Za postavljanje minimalne stambene površine pošaljite poruku u chatu u formatu:\n"
-            f"`/postavi_kvadraturu <m2>`\n\n"
-            f"Primjer: `/postavi_kvadraturu 40`"
+            "\U0001f4d0 **Postavljanje minimalne kvadrature**\n\n"
+            "Za postavljanje minimalne stambene površine pošaljite poruku u chatu u formatu:\n"
+            "`/postavi_kvadraturu <m2>`\n\n"
+            "Primjer: `/postavi_kvadraturu 40`"
         )
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("\u2b05\ufe0f Nazad u postavke", callback_data="cb_settings_main")]

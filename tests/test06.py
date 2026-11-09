@@ -1,6 +1,5 @@
-import pytest
 from bs4 import BeautifulSoup
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 from scrapers.health_check import is_listing_text_inactive, check_listing_url_status
 from scrapers.njuskalo import parse_njuskalo_card
 from scrapers.index_hr import parse_api_item

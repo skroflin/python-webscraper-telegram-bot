@@ -1,18 +1,11 @@
 [tool.ruff]
-line-length = 120
+line-length = 100
 target-version = "py312"
-exclude = [
-    ".git",
-    "venv",
-    ".pytest_cache",
-    "__pycache__",
-    "data",
-]
 
 [tool.ruff.lint]
 select = ["E", "F", "W"]
 ignore = [
-    "E501", # line too long (handled gracefully)
-    "E402", # module level import not at top of file (used in tests/main sys.path adjustments)
+    "W291",  # Trailing whitespace
+    "W292",  # No newline at end of file
+    "W293",  # Blank line contains whitespace
 ]
-

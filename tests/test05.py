@@ -8,7 +8,6 @@ from analytics.user_settings import (
     get_user_profile,
     get_user_priorities,
     toggle_user_priority,
-    get_all_users_with_preferences,
 )
 from bot.notifier import notify_users_about_listing
 

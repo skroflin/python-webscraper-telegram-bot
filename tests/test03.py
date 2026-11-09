@@ -9,7 +9,6 @@ from scrapers.index_hr import (
     parse_area,
     match_location_id,
     extract_from_next_data,
-    extract_from_html,
     scrape_index_osijek,
     run_index_scraper_and_save,
     OSIJEK_CITY_ID,

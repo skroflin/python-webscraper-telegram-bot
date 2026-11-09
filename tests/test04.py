@@ -76,7 +76,6 @@ def test_existing_users_table_migrates_and_saves_location(tmp_path, monkeypatch)
 
 
 def test_reset_user_filters_clears_neighborhoods_and_priorities(monkeypatch):
-    from analytics.user_settings import get_connectivity
 
     connection = sqlite3.connect(":memory:")
     connection.row_factory = sqlite3.Row
