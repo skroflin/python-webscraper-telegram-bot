@@ -89,7 +89,7 @@ async def setup_bot_metadata(application):
             BotCommand("start", "Početak i pregled opcija"),
             BotCommand("postavke", "Filteri i preferencije"),
             BotCommand("moj_profil", "Pregled aktivnih postavki"),
-            BotCommand("najnovije", "Zadnjih 5 stanova"),
+            BotCommand("najnovije", "Zadnjih 10 stanova"),
             BotCommand("best_buy", "Najpovoljniji stanovi po m\u00b2"),
             BotCommand("blizu", "Stanovi blizu lokacije"),
             BotCommand("spremljeno", "Spremljeni oglasi"),
@@ -299,7 +299,7 @@ async def latest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\u2139\ufe0f Trenutno nema unesenih stanova u bazi.")
         return
 
-    await update.message.reply_text("\U0001F4CB **Zadnjih 5 stanova u bazi:**", parse_mode="Markdown")
+    await update.message.reply_text("\U0001F4CB **Zadnjih 10 stanova u bazi:**", parse_mode="Markdown")
 
     for item in listings:
         area = f"{item['area_sqm']} m^2" if item.get("area_sqm") else "Nije navedeno"
