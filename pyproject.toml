@@ -1,0 +1,18 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+exclude = [
+    ".git",
+    "venv",
+    ".pytest_cache",
+    "__pycache__",
+    "data",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = [
+    "E501", # line too long (handled gracefully)
+    "E402", # module level import not at top of file (used in tests/main sys.path adjustments)
+]
+
