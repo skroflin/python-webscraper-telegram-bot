@@ -3,14 +3,38 @@ version: '3.8'
 services:
   stanovi-bot:
     build: .
-    container_name: stanovi_osijek_bot
+    container_name: stanovi_bot
     restart: unless-stopped
+    command: ["python", "-m", "bot.telegram_bot"]
     env_file:
       - .env
     environment:
       - DB_PATH=/app/data/listings.db
+      - ENABLE_EMBEDDED_SCHEDULER=false
     volumes:
       - ./data:/app/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  stanovi-worker:
+    build: .
+    container_name: stanovi_worker
+    restart: unless-stopped
+    command: ["python", "worker.py"]
+    env_file:
+      - .env
+    environment:
+      - DB_PATH=/app/data/listings.db
+      - SCRAPE_INTERVAL_MINUTES=30
+      - FACEBOOK_STORAGE_STATE=/app/facebook_state.json
+    volumes:
+      - ./data:/app/data
+      - ./facebook_state.json:/app/facebook_state.json
+    depends_on:
+      - stanovi-bot
     logging:
       driver: "json-file"
       options:

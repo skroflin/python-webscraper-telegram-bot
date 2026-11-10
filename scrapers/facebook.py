@@ -13,7 +13,7 @@ from database.database import (
     get_listing_by_id,
     save_or_update_listing,
 )
-from bot.notifier import notify_users_about_listing
+from bot.notifier import notify_users_about_listing, send_admin_alert
 
 try:
     from scrapers.health_check import is_listing_text_inactive
@@ -509,6 +509,13 @@ async def _scrape_page(
                 "Facebook login/checkpoint required for %s",
                 url,
             )
+            await send_admin_alert(
+                f"🚨 *[Facebook Sesija Istekla]*\n\n"
+                f"Facebook zahtijeva prijavu ili sigurnosnu provjeru (checkpoint/login) za izvor:\n`{url}`\n\n"
+                f"Kolačići u sesiji su istekli ili ih je Facebook poništio.\n\n"
+                f"👉 *Rješenje:* Pokrenite lokalno `python scripts/generate_fb_state.py` kako biste obnovili sesiju.",
+                alert_key="fb_session_expired",
+            )
             return []
 
         title = (await page.title()).casefold()
@@ -517,6 +524,12 @@ async def _scrape_page(
             logging.warning(
                 "Facebook may be showing a login page: %s",
                 url,
+            )
+            await send_admin_alert(
+                f"\U0001F6A8 *[Facebook Prijavni Prozor]*\n\n"
+                f"Facebook prikazuje prozor za prijavu umjesto sadržaja za:\n`{url}`\n\n"
+                f"\U0001F449 Obnovite sesiju pokretanjem `python scripts/generate_fb_state.py`.",
+                alert_key="fb_login_shown",
             )
             return []
 
@@ -598,6 +611,18 @@ async def scrape_facebook_osijek(
                 and os.path.isfile(FACEBOOK_STORAGE_STATE)
             ):
                 context_options["storage_state"] = FACEBOOK_STORAGE_STATE
+            else:
+                logging.warning(
+                    "Facebook storage state file '%s' not found. Scraping without authenticated session.",
+                    FACEBOOK_STORAGE_STATE,
+                )
+                await send_admin_alert(
+                    "\U000026A0 *[Facebook Sesija Upozorenje]*\n\n"
+                    f"Datoteka sesije `{FACEBOOK_STORAGE_STATE or 'Nije definirana'}` nije pronađena na poslužitelju.\n"
+                    "Facebook Marketplace pretraga može biti ograničena ili neaktivna.\n\n"
+                    "\U0001F449 Pokrenite lokalno `python scripts/generate_fb_state.py` i prebacite datoteku na server.",
+                    alert_key="fb_missing_session_file",
+                )
 
             context = await browser.new_context(**context_options)
 

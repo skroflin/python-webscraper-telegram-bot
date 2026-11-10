@@ -33,21 +33,24 @@ stanovi-osijek-bot/
 ├── .gitignore
 ├── config.py
 ├── Dockerfile
+├── docker-compose.yml
 ├── facebook_state.json
 ├── main.py
 ├── README.md
-└── requirements.txt
+├── requirements.txt
+└── worker.py
 ```
 
 ### Opis modula
 
 * **analytics/**: Modul zadužen za statističku obradu podataka, izračun ocjene podudarnosti (match score), geolokacijske proračune (POI) i generiranje dijagrama.
-* **bot/**: Izvršna logika Telegram bota, rukovanje naredbama korisnika, interaktivnim tipkama i slanjem obavijesti.
-* **data/**: Perzistentno spremište u kojem se nalazi SQLite baza podataka.
+* **bot/**: Izvršna logika Telegram bota, rukovanje naredbama korisnika, interaktivnim tipkama i slanjem obavijesti s ugrađenim Rate Limiterom.
+* **data/**: Perzistentno spremište u kojem se nalazi SQLite baza podataka (`listings.db`) u WAL načinu rada.
 * **database/**: Upravljanje vezom s bazom podataka, definicija sheme i SQL upiti za unose i ažuriranja.
-* **scrapers/**: Samostalni moduli za prikupljanje podataka s platformi Index.hr, Njuškalo i Facebook (Marketplace i Grupe), te logika provjere aktivnosti oglasa.
+* **scrapers/**: Samostalni moduli za prikupljanje podataka s platformi Index.hr, Njuškalo i Facebook (Marketplace i Grupe), uz detekciju isteklih sesija i provjeru aktivnosti oglasa.
 * **scripts/**: Pomoćne skripte, uključujući skriptu za lokalno generiranje autentične Facebook sesije.
 * **main.py**: Središnji cjevovod (pipeline) za pokretanje svih scrapera i koordinaciju spremanja podataka.
+* **worker.py**: Samostalni pozadinski proces (daemon) za periodički scraping i održavanje oglasa, odvojen od interaktivnog Telegram bota.
 
 ---
 
@@ -186,7 +189,11 @@ docker run -d `
   osijek-stanovi-bot
 ```
 
-#### Pokretanje putem Docker Compose-a
+#### Pokretanje putem Docker Compose-a (Preporučeno)
+
+Docker Compose automatski podiže dva međusobno izolirana servisa:
+- `stanovi-bot`: Telegram bot sučelje (nizak utrošak resursa, trenutni odziv na komande).
+- `stanovi-worker`: Scraper radnik (vrti periodičko prikupljanje i Playwright u pozadini).
 
 ```bash
 docker compose up -d --build
@@ -194,8 +201,13 @@ docker compose up -d --build
 
 #### Pregled zapisnika (Logs)
 
-Za praćenje rada aplikacije u stvarnom vremenu pokrenite:
+Za praćenje rada servisa u stvarnom vremenu pokrenite:
 
 ```bash
-docker logs -f osijek_bot
+# Praćenje oba servisa zajedno:
+docker compose logs -f
+
+# Ili pojedinačno:
+docker compose logs -f stanovi-bot
+docker compose logs -f stanovi-worker
 ```

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
 from datetime import time as datetime_time
@@ -856,25 +857,30 @@ def run_bot_listener():
         .post_init(setup_bot_metadata)
         .build()
     )
-    if app.job_queue is None:
-        raise RuntimeError("python-telegram-bot JobQueue is unavailable; install its job-queue extra.")
+    enable_embedded_scheduler = os.getenv("ENABLE_EMBEDDED_SCHEDULER", "true").lower() in ("true", "1", "yes")
 
-    app.job_queue.run_repeating(
-        scheduled_scrape_job,
-        interval=SCRAPE_INTERVAL_MINUTES * 60,
-        first=5,
-        name="apartment_scrape",
-        job_kwargs={"max_instances": 1, "coalesce": True},
-    )
-    app.job_queue.run_daily(
-        scheduled_health_check_job,
-        time=datetime_time(hour=3),
-        name="listing_health_check",
-    )
-    logging.info(
-        "\U000023F3 PTB JobQueue active: scraping every %s minutes.",
-        SCRAPE_INTERVAL_MINUTES,
-    )
+    if enable_embedded_scheduler:
+        if app.job_queue is None:
+            raise RuntimeError("python-telegram-bot JobQueue is unavailable; install its job-queue extra.")
+
+        app.job_queue.run_repeating(
+            scheduled_scrape_job,
+            interval=SCRAPE_INTERVAL_MINUTES * 60,
+            first=5,
+            name="apartment_scrape",
+            job_kwargs={"max_instances": 1, "coalesce": True},
+        )
+        app.job_queue.run_daily(
+            scheduled_health_check_job,
+            time=datetime_time(hour=3),
+            name="listing_health_check",
+        )
+        logging.info(
+            "\U0000231B Embedded PTB JobQueue active: scraping every %s minutes.",
+            SCRAPE_INTERVAL_MINUTES,
+        )
+    else:
+        logging.info("\U00002139 Embedded PTB JobQueue disabled (scraping delegated to standalone worker).")
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("postavke", settings_command))

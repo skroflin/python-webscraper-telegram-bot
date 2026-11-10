@@ -1,7 +1,7 @@
 import asyncio
 import logging
-from typing import Optional
-from telegram.ext import Application, ApplicationBuilder
+from typing import Optional, Any
+from telegram.ext import ApplicationBuilder
 
 from config import TELEGRAM_BOT_TOKEN
 from database.database import save_or_update_listing, get_listing_by_id, init_db
@@ -13,8 +13,8 @@ from bot.notifier import notify_users_about_listing
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
-async def run_pipeline(app: Optional[Application] = None, max_pages: int = 10) -> dict:
-    logging.info("\U0001F5E1 Starting scraping operation and notification workflow...")
+async def run_pipeline(app: Optional[Any] = None, max_pages: int = 10) -> dict:
+    logging.info("⚔️ Starting scraping operation and notification workflow...")
 
     index_listings = await asyncio.to_thread(scrape_index_osijek, max_pages=max_pages)
     njuskalo_listings = await asyncio.to_thread(scrape_njuskalo_osijek, max_pages=max_pages)
@@ -29,14 +29,14 @@ async def run_pipeline(app: Optional[Application] = None, max_pages: int = 10) -
 
         if status in ("inserted", "INSERTED"):
             stats["inserted"] += 1
-            if app and listing_id:
+            if listing_id:
                 full_item = await asyncio.to_thread(get_listing_by_id, listing_id)
                 if full_item:
                     await notify_users_about_listing(app, full_item, event_type="inserted")
 
         elif status in ("price_drop", "PRICE_DROP"):
             stats["price_drop"] += 1
-            if app and listing_id:
+            if listing_id:
                 full_item = await asyncio.to_thread(get_listing_by_id, listing_id)
                 if full_item:
                     full_item["old_price"] = item.get("old_price")
