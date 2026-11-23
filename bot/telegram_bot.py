@@ -12,6 +12,7 @@ from telegram import (
     KeyboardButton,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
+    WebAppInfo,
 )
 from telegram.constants import ChatType
 from telegram.ext import (
@@ -38,7 +39,10 @@ from analytics.market_stats import (
     get_listings_near_location,
     get_neighborhood_stats,
     get_listings_by_neighborhood,
+    get_map_listings_and_pois,
 )
+
+WEBAPP_URL = os.getenv("WEBAPP_URL", "")
 from analytics.user_settings import (
     set_user_budget,
     set_user_min_area,
@@ -88,6 +92,7 @@ async def setup_bot_metadata(application):
         )
         commands = [
             BotCommand("start", "Početak i pregled opcija"),
+            BotCommand("karta", "Interaktivna karta stanova 🗺️"),
             BotCommand("postavke", "Filteri i preferencije"),
             BotCommand("moj_profil", "Pregled aktivnih postavki"),
             BotCommand("najnovije", "Zadnjih 10 stanova"),
@@ -102,22 +107,52 @@ async def setup_bot_metadata(application):
         logging.warning(f"Could not update bot metadata: {e}")
 
 
+async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler for /karta command, providing Telegram Mini App access or statistics."""
+    map_data = await asyncio.to_thread(get_map_listings_and_pois)
+    listings_count = len(map_data.get("listings", []))
+    pois_count = len(map_data.get("pois", []))
+
+    if WEBAPP_URL:
+        keyboard = [
+            [InlineKeyboardButton("🗺️ Otvori interaktivnu kartu", web_app=WebAppInfo(url=WEBAPP_URL))]
+        ]
+        await update.message.reply_text(
+            f"📍 **Interaktivna karta najma stanova u Osijeku**\n\n"
+            f"- Prikazano stanova: **{listings_count}**\n"
+            f"- Ključnih lokacija (fakulteti, bolnica, centri): **{pois_count}**\n\n"
+            "Dodirnite gumb ispod za pregled ponude s vizualnim filtrima i cijenama:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+    else:
+        await update.message.reply_text(
+            f"📍 **Karta stanova u Osijeku (Telegram Mini App)**\n\n"
+            f"- Dostupno na karti: **{listings_count}** stanova i **{pois_count}** POI točaka.\n\n"
+            "ℹ️ *Za otvaranje karte unutar Telegrama:* postavite `WEBAPP_URL` u `.env` "
+            "(npr. URL gdje je postavljen `webapp/index.html`).",
+            parse_mode="Markdown",
+        )
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
         "\U0001F44B **Bok! Ja sam tvoj Osijek Stanovi Bot.** \U0001F916\n\n"
+        "🗺️ **Karta i pretraga:**\n"
+        "- `/karta` - otvori interaktivnu kartu ponude stanova\n"
+        "- `/najnovije` - zadnjih 10 stanova iz baze\n"
+        "- `/best_buy` - najpovoljniji stanovi po m^2\n"
+        "- `/blizu [km]` - pronađi stanove blizu svoje lokacije (zadano 3 km)\n\n"
         "\u2699\ufe0f **Korisnički filteri i postavke:**\n"
         "- `/postavke` - interaktivni izbornik za postavke i kvartove\n"
         "- `/postavi_budzet <cijena>` - postavi max cijenu (npr. `/postavi_budzet 400`)\n"
         "- `/postavi_kvadraturu <m2>` - postavi min površinu (npr. `/postavi_kvadraturu 35`)\n"
         "- `/moj_profil` - pregledaj trenutno aktivne filtere\n"
         "- `/ponisti_filtere` - uklanja sve filtere (primaš sve oglase)\n\n"
-        "\U0001F4CA **Analitika i pretraga:**\n"
+        "\U0001F4CA **Analitika i pregled:**\n"
         "- `/analitika` - prosječne cijene i ukupna statistika\n"
         "- `/kvartovi` - pregled cijena po osječkim kvartovima\n"
         "- `/kvart <ime kvarta>` - pregled oglasa u kvartu (npr. `/kvart Retfala`)\n"
-        "- `/best_buy` - najpovoljniji stanovi po m^2\n"
-        "- `/najnovije` - zadnjih 10 stanova iz baze\n"
-        "- `/blizu [km]` - pronađi stanove blizu svoje lokacije (zadano 3 km)\n"
         "- `/spremljeno` - vaši omiljeni/spremljeni oglasi \u2B50\n"
         "- `/graf` - grafička analiza cijena po kvartovima\n"
     )
@@ -127,6 +162,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("\U0001F4CD Odaberi kvartove", callback_data="cb_settings_neighborhoods"),
         ]
     ]
+    if WEBAPP_URL:
+        keyboard.insert(0, [
+            InlineKeyboardButton("🗺️ Otvori kartu stanova", web_app=WebAppInfo(url=WEBAPP_URL))
+        ])
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(welcome_text, parse_mode="Markdown", reply_markup=reply_markup)
 
@@ -883,6 +922,7 @@ def run_bot_listener():
         logging.info("\U00002139 Embedded PTB JobQueue disabled (scraping delegated to standalone worker).")
 
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("karta", map_command))
     app.add_handler(CommandHandler("postavke", settings_command))
     app.add_handler(CommandHandler("postavi_budzet", set_budget_command))
     app.add_handler(CommandHandler("postavi_kvadraturu", set_area_command))

@@ -133,5 +133,49 @@ def get_listings_by_neighborhood(neighborhood_name: str, limit: int = 5) -> List
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
     except Exception as e:
-        logging.error(f"\U0001F506 Error fetching listings for neighborhood {neighborhood_name}: {e}")
+        logging.error(f"Error fetching listings for neighborhood {neighborhood_name}: {e}")
         return []
+
+
+def get_map_listings_and_pois() -> Dict:
+    """
+    Fetches all active listings with geographic coordinates and all POI landmarks,
+    ready for rendering in the Telegram Mini App interactive Leaflet map.
+    """
+    from analytics.feature_extractor import extract_features
+    from analytics.poi import get_all_pois_from_db
+
+    listings = []
+    try:
+        with get_connectivity() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    l.id, l.title, l.description, l.price, l.area_sqm,
+                    l.source_platform, l.url, l.image_url,
+                    loc.name AS neighborhood, loc.latitude, loc.longitude
+                FROM listings l
+                JOIN locations loc ON l.location_id = loc.id
+                WHERE l.is_active = 1
+                  AND loc.latitude IS NOT NULL
+                  AND loc.longitude IS NOT NULL
+                ORDER BY l.created_at DESC
+            """)
+            rows = cursor.fetchall()
+
+            for row in rows:
+                item = dict(row)
+                features = extract_features(item.get("title", ""), item.get("description", ""))
+                item["pet_friendly"] = features["pet_friendly"]
+                item["elevator"] = features["elevator"]
+                item["parking"] = features["parking"]
+                item["utilities_included"] = features["utilities_included"]
+                item["utilities_est"] = features["utilities_est"]
+                item["deposit"] = features["deposit"]
+                listings.append(item)
+
+    except Exception as e:
+        logging.error(f"Error fetching map listings: {e}")
+
+    pois = get_all_pois_from_db()
+    return {"listings": listings, "pois": pois}
