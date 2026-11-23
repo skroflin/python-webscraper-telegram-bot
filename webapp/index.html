@@ -12,6 +12,11 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
+  <!-- Leaflet MarkerCluster CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
   <style>
     :root {
       --bg-color: #ffffff;
@@ -76,11 +81,19 @@
       border-radius: 12px;
     }
 
+    /* Horizontal filter bar with hidden scrollbar */
     .quick-filters {
       display: flex;
       gap: 6px;
       overflow-x: auto;
       padding-bottom: 2px;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none; /* Firefox */
+      -ms-overflow-style: none; /* IE / Edge */
+    }
+
+    .quick-filters::-webkit-scrollbar {
+      display: none; /* Chrome, Safari, Opera */
     }
 
     .filter-btn {
@@ -88,11 +101,13 @@
       color: var(--text-color);
       border: 1px solid var(--border-color);
       border-radius: 16px;
-      padding: 4px 10px;
+      padding: 5px 12px;
       font-size: 12px;
+      font-weight: 500;
       cursor: pointer;
       white-space: nowrap;
       transition: all 0.2s ease;
+      flex-shrink: 0;
     }
 
     .filter-btn.active {
@@ -108,19 +123,26 @@
       z-index: 1;
     }
 
-    /* Custom Map Markers */
+    /* Custom Price Badges on Map */
     .price-marker {
       background: #2481cc;
       color: #fff;
-      font-weight: bold;
+      font-weight: 700;
       font-size: 11px;
-      padding: 4px 6px;
-      border-radius: 10px;
-      border: 2px solid #fff;
+      padding: 3px 7px;
+      border-radius: 12px;
+      border: 2px solid #ffffff;
       box-shadow: 0 2px 6px rgba(0,0,0,0.3);
       text-align: center;
       white-space: nowrap;
       cursor: pointer;
+      display: inline-block;
+      transition: transform 0.15s ease;
+    }
+
+    .price-marker:hover {
+      transform: scale(1.08);
+      z-index: 1000;
     }
 
     .price-marker.cheap {
@@ -135,15 +157,37 @@
       background: #dc3545;
     }
 
-    .poi-marker {
+    /* Subtle POI Dots (lower visual footprint so they don't cover listings) */
+    .poi-dot {
       background: var(--poi-color);
       color: #fff;
-      font-size: 10px;
-      font-weight: 600;
-      padding: 3px 6px;
-      border-radius: 8px;
-      border: 1px solid #fff;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 1.5px solid #fff;
       box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      cursor: pointer;
+      opacity: 0.88;
+    }
+
+    .poi-dot:hover {
+      opacity: 1;
+      transform: scale(1.1);
+    }
+
+    /* Cluster Customization */
+    .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
+      background-color: rgba(36, 129, 204, 0.4) !important;
+    }
+    .marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div {
+      background-color: var(--primary-color) !important;
+      color: #fff !important;
+      font-weight: bold !important;
+      font-size: 12px !important;
     }
 
     /* Popup Styling */
@@ -151,7 +195,7 @@
       background: var(--card-bg);
       color: var(--text-color);
       border-radius: 12px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
     }
 
     .leaflet-popup-tip {
@@ -173,7 +217,7 @@
     .popup-meta {
       font-size: 12px;
       margin-bottom: 6px;
-      color: #888;
+      color: #777;
     }
 
     .popup-price {
@@ -245,29 +289,35 @@
       }
     }
 
-    // Centered at Osijek center
+    // Centered at Osijek
     const OSIJEK_CENTER = [45.5550, 18.6955];
     const map = L.map('map', {
       zoomControl: true,
-      attributionControl: false
+      attributionControl: true
     }).setView(OSIJEK_CENTER, 13);
 
-    // Light / Dark CartoDB basemap
-    const isDark = document.body.classList.contains('dark-mode');
-    const tileLayerUrl = isDark
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-      : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-
-    L.tileLayer(tileLayerUrl, { maxZoom: 19 }).addTo(map);
+    // Standard, completely free OpenStreetMap tile layer (no API keys required)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors'
+    }).addTo(map);
 
     let allListings = [];
     let allPOIs = [];
-    let listingsLayer = L.layerGroup().addTo(map);
-    let poisLayer = L.layerGroup().addTo(map);
     let showPOIs = true;
     let activeFilter = 'all';
 
-    // Sample fallback data in case external API is loading or offline
+    // MarkerClusterGroup to prevent overlapping price markers
+    const listingsCluster = L.markerClusterGroup({
+      showCoverageOnHover: false,
+      maxClusterRadius: 45,
+      spiderfyOnMaxZoom: true,
+      disableClusteringAtZoom: 16
+    }).addTo(map);
+
+    const poisLayer = L.layerGroup().addTo(map);
+
+    // Default landmark sample POIs
     const samplePOIs = [
       { name: "Sveučilišni kampus", lat: 45.5542, lon: 18.7032, icon: "🎓" },
       { name: "KBC Osijek (Bolnica)", lat: 45.5582, lon: 18.7115, icon: "🏥" },
@@ -282,19 +332,34 @@
       poisLayer.clearLayers();
       pois.forEach(poi => {
         const markerIcon = L.divIcon({
-          className: 'custom-poi-marker',
-          html: `<div class="poi-marker">${poi.icon || '📍'} ${poi.name}</div>`,
-          iconSize: null
+          className: 'custom-poi-dot',
+          html: `<div class="poi-dot" title="${poi.name}">${poi.icon || '📍'}</div>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12]
         });
-        L.marker([poi.lat || poi.latitude, poi.lon || poi.longitude], { icon: markerIcon })
+        L.marker([poi.lat || poi.latitude, poi.lon || poi.longitude], {
+          icon: markerIcon,
+          zIndexOffset: -1000 // Keep POI dots below apartment listings
+        })
           .bindPopup(`<b>${poi.name}</b><br><small>Ključna točka (POI)</small>`)
           .addTo(poisLayer);
       });
     }
 
+    // Zoom listener: show POI landmarks only when sufficiently zoomed in (zoom >= 13)
+    map.on('zoomend', () => {
+      if (!showPOIs) return;
+      if (map.getZoom() < 13) {
+        if (map.hasLayer(poisLayer)) map.removeLayer(poisLayer);
+      } else {
+        if (!map.hasLayer(poisLayer)) map.addLayer(poisLayer);
+      }
+    });
+
     function renderListings(listings) {
-      listingsLayer.clearLayers();
+      listingsCluster.clearLayers();
       let displayedCount = 0;
+      const bounds = L.latLngBounds();
 
       listings.forEach(item => {
         if (!item.latitude || !item.longitude) return;
@@ -307,6 +372,8 @@
         if (activeFilter === 'parking' && !item.parking) return;
 
         displayedCount++;
+        const latLng = [item.latitude, item.longitude];
+        bounds.extend(latLng);
 
         let priceClass = 'medium';
         if (item.price <= 380) priceClass = 'cheap';
@@ -316,17 +383,18 @@
         const markerIcon = L.divIcon({
           className: 'custom-price-marker',
           html: markerHtml,
-          iconSize: [50, 24],
-          iconAnchor: [25, 12]
+          iconSize: [52, 24],
+          iconAnchor: [26, 12]
         });
 
-        // Badges
+        // Badges in popup
         const badges = [];
         if (item.pet_friendly) badges.push('🐾 Pet ok');
         if (item.elevator) badges.push('🛗 Lift');
         if (item.parking) badges.push('🅿️ Parking');
         if (item.utilities_included) badges.push('💡 Režije u cijeni');
-        else if (item.utilities_est) badges.push(`💡 Režije ~${item.utilities_est}€`);
+        else if (item.utilities_est) badges.push(`💡 Režije ~${item.utilities_est}`);
+        if (item.deposit) badges.push(`🔒 Polog: ${item.deposit}`);
 
         const badgeHtml = badges.map(b => `<span class="tag-badge">${b}</span>`).join('');
         const areaText = item.area_sqm ? `${item.area_sqm} m²` : 'Nije navedeno';
@@ -341,17 +409,23 @@
           </div>
         `;
 
-        L.marker([item.latitude, item.longitude], { icon: markerIcon })
-          .bindPopup(popupContent)
-          .addTo(listingsLayer);
+        const marker = L.marker(latLng, { icon: markerIcon, zIndexOffset: 100 })
+          .bindPopup(popupContent);
+
+        listingsCluster.addLayer(marker);
       });
 
       document.getElementById('listing-count').innerText = `${displayedCount} stanova`;
+
+      // Automatically fit map to loaded listings
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [35, 35], maxZoom: 15 });
+      }
     }
 
     // Filter Buttons Handling
     document.querySelectorAll('.filter-btn[data-filter]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', () => {
         document.querySelectorAll('.filter-btn[data-filter]').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         activeFilter = btn.getAttribute('data-filter');
@@ -363,7 +437,7 @@
       showPOIs = !showPOIs;
       if (showPOIs) {
         this.classList.add('active');
-        map.addLayer(poisLayer);
+        if (map.getZoom() >= 13) map.addLayer(poisLayer);
       } else {
         this.classList.remove('active');
         map.removeLayer(poisLayer);
@@ -385,13 +459,13 @@
         console.warn('API endpoint unavailable, using bundled data.', err);
         // Fallback sample listings for instant preview
         allListings = [
-          { id: 1, title: "Dvosoban stan s balkonom u Retfali", price: 380, area_sqm: 52, neighborhood: "Retfala", latitude: 45.5600, longitude: 18.6500, pet_friendly: true, elevator: false, parking: true, url: "https://www.njuskalo.hr" },
-          { id: 2, title: "Moderan stan u Centru, zgrada s liftom", price: 450, area_sqm: 45, neighborhood: "Centar", latitude: 45.5570, longitude: 18.6800, pet_friendly: false, elevator: true, parking: true, url: "https://www.njuskalo.hr" },
-          { id: 3, title: "Garsonijera u Sjenjaku, blizina Kampusa", price: 320, area_sqm: 30, neighborhood: "Sjenjak", latitude: 45.5500, longitude: 18.7100, pet_friendly: false, elevator: true, parking: false, url: "https://www.index.hr" },
-          { id: 4, title: "Prostran trosoban stan, Donji Grad", price: 550, area_sqm: 75, neighborhood: "Donji Grad", latitude: 45.5580, longitude: 18.7200, pet_friendly: true, elevator: false, parking: true, url: "https://www.facebook.com" },
-          { id: 5, title: "Povoljan stan u Tvrđi", price: 300, area_sqm: 38, neighborhood: "Tvrđa", latitude: 45.5610, longitude: 18.6960, pet_friendly: true, elevator: false, parking: false, url: "https://www.index.hr" },
-          { id: 6, title: "Novogradnja Industrijska četvrt", price: 420, area_sqm: 48, neighborhood: "Industrijska četvrt", latitude: 45.5420, longitude: 18.6750, pet_friendly: false, elevator: true, parking: true, url: "https://www.njuskalo.hr" },
-          { id: 7, title: "Stan Jug 2 blizu tramvajske stanice", price: 350, area_sqm: 50, neighborhood: "Jug 2", latitude: 45.5400, longitude: 18.7150, pet_friendly: true, elevator: false, parking: true, url: "https://www.index.hr" }
+          { id: 1, title: "Dvosoban stan s balkonom u Retfali", price: 380, area_sqm: 52, neighborhood: "Retfala", latitude: 45.5600, longitude: 18.6500, pet_friendly: true, elevator: false, parking: true, utilities_est: "60 €", deposit: "1 najamnina", url: "https://www.njuskalo.hr" },
+          { id: 2, title: "Moderan stan u Centru, zgrada s liftom", price: 450, area_sqm: 45, neighborhood: "Centar", latitude: 45.5570, longitude: 18.6800, pet_friendly: false, elevator: true, parking: true, utilities_included: false, deposit: "450 €", url: "https://www.njuskalo.hr" },
+          { id: 3, title: "Garsonijera u Sjenjaku, blizina Kampusa", price: 320, area_sqm: 30, neighborhood: "Sjenjak", latitude: 45.5500, longitude: 18.7100, pet_friendly: false, elevator: true, parking: false, utilities_included: true, deposit: "Bez pologa", url: "https://www.index.hr" },
+          { id: 4, title: "Prostran trosoban stan, Donji Grad", price: 550, area_sqm: 75, neighborhood: "Donji Grad", latitude: 45.5580, longitude: 18.7200, pet_friendly: true, elevator: false, parking: true, deposit: "500 €", url: "https://www.facebook.com" },
+          { id: 5, title: "Povoljan stan u Tvrđi", price: 300, area_sqm: 38, neighborhood: "Tvrđa", latitude: 45.5610, longitude: 18.6960, pet_friendly: true, elevator: false, parking: false, utilities_est: "50 €", deposit: "300 €", url: "https://www.index.hr" },
+          { id: 6, title: "Novogradnja Industrijska četvrt", price: 420, area_sqm: 48, neighborhood: "Industrijska četvrt", latitude: 45.5420, longitude: 18.6750, pet_friendly: false, elevator: true, parking: true, deposit: "1 najamnina", url: "https://www.njuskalo.hr" },
+          { id: 7, title: "Stan Jug 2 blizu tramvajske stanice", price: 350, area_sqm: 50, neighborhood: "Jug 2", latitude: 45.5400, longitude: 18.7150, pet_friendly: true, elevator: false, parking: true, utilities_included: false, deposit: "350 €", url: "https://www.index.hr" }
         ];
         allPOIs = samplePOIs;
       }
@@ -404,4 +478,3 @@
   </script>
 </body>
 </html>
-
